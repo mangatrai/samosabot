@@ -72,6 +72,7 @@ def save_qotd_schedules():
 # Initialize QOTD storage from Replit DB
 qotd_channels = load_qotd_schedules()
 
+
 # Function to generate OpenAI content
 def format_joke(response_text):
     if '' in response_text:
@@ -85,7 +86,7 @@ def format_joke(response_text):
 # Trivia Logic (Handles Both Prefix & Slash Commands)
 async def start_trivia(source,
                        category: str = "general",
-                       num_questions: int = 5,
+                       num_questions: int = 10,
                        is_slash: bool = False):
     guild_id = source.guild.id if isinstance(
         source, commands.Context) else source.guild_id
@@ -131,6 +132,9 @@ async def start_trivia(source,
         # **Check if trivia was stopped before generating a new question**
         if guild_id not in active_trivia_games:
             return  # Exit loop if the game was stopped
+        
+        # **Reset wrong attempts for the new question**
+        active_trivia_games[guild_id]["wrong_attempts"] = {}
 
         content = generate_openai_prompt(
             f"Generate a unique and engaging trivia question in the category of {category}. "
@@ -185,9 +189,7 @@ async def start_trivia(source,
 
         # Function to check user responses
         def check(m):
-            return (m.author.id
-                    == (source.user.id if is_slash else source.author.id)
-                    and m.channel.id
+            return (m.channel.id
                     == (source.channel_id if is_slash else source.channel.id)
                     and m.content.upper() in ["A", "B", "C", "D"])
 
@@ -205,19 +207,31 @@ async def start_trivia(source,
                 user_answer = response.content.upper()
                 user_id = response.author.id
 
+                # Initialize user stats in Replit DB if not present
+                if f"user_stats_{user_id}" not in db:
+                    db[f"user_stats_{user_id}"] = {"correct": 0, "wrong": 0}
+
+                # Retrieve user's stats
+                user_stats = db[f"user_stats_{user_id}"]
+
                 if user_answer == correct_answer:
                     active_trivia_games[guild_id]["scores"][
                         user_id] = active_trivia_games[guild_id]["scores"].get(
                             user_id, 0) + 1
+                    # Update persistent stats in Replit DB
+                    user_stats["correct"] += 1
+                    db[f"user_stats_{user_id}"] = user_stats  # Save back to DB
                     correct_answered = True  # Exit loop only if the correct answer is given
+
+                    answering_user_name = response.author.display_name  # Get actual user who answered
 
                     if is_slash:
                         await source.channel.send(
-                            f"✅ Correct! {user_name} got it right! Your score: {active_trivia_games[guild_id]['scores'][user_id]}"
+                            f"✅ Correct! {answering_user_name} got it right! Your score: {active_trivia_games[guild_id]['scores'][user_id]}"
                         )
                     else:
                         await response.channel.send(
-                            f"✅ Correct! {user_name} got it right! Your score: {active_trivia_games[guild_id]['scores'][user_id]}"
+                            f"✅ Correct! {answering_user_name} got it right! Your score: {active_trivia_games[guild_id]['scores'][user_id]}"
                         )
 
                     # **Show next question message immediately**
@@ -230,6 +244,10 @@ async def start_trivia(source,
 
                     break  # Move to next question
                 else:
+                    if not active_trivia_games[guild_id].get("wrong_attempts", {}).get(user_id, False):
+                        user_stats["wrong"] += 1  # Count wrong answer only once per question
+                        db[f"user_stats_{user_id}"] = user_stats  # Save back to DB
+                        active_trivia_games[guild_id].setdefault("wrong_attempts", {})[user_id] = True
                     await response.channel.send(
                         f"❌ Wrong! Try again! You have 30 seconds remaining.")
 
@@ -269,23 +287,48 @@ async def start_trivia(source,
 
     # **Check if trivia was stopped before ending the game**
     if guild_id in active_trivia_games:
-        del active_trivia_games[guild_id]
+        await show_leaderboard(source, guild_id)  # Show results at the end
 
     if is_slash:
         await source.channel.send("🎉 Trivia game over! Thanks for playing!")
     else:
         await source.send("🎉 Trivia game over! Thanks for playing!")
 
+# Helper function to show the leaderboard
+async def show_leaderboard(source, guild_id):
+    if guild_id in active_trivia_games:
+        sorted_scores = sorted(
+            active_trivia_games[guild_id]["scores"].items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+
+        leaderboard_entries = []
+        for user_id, score in sorted_scores:
+            user = bot.get_user(user_id) or await bot.fetch_user(user_id)  # Fetch user if not in cache
+            leaderboard_entries.append(f"🏆 {user.display_name}: {score} correct")
+
+        leaderboard = "\n".join(leaderboard_entries)
+
+        if isinstance(source, commands.Context):  # Prefix command (!trivia stop)
+            await source.send(f"🎉 Trivia game over! Here are the final results:\n{leaderboard}")
+        else:  # Slash command (/trivia stop)
+            await source.channel.send(f"🎉 Trivia game over! Here are the final results:\n{leaderboard}")
+
+        # Remove the game session
+        del active_trivia_games[guild_id]
+
 # Make call to OpenAI to generate Response
 def generate_openai_prompt(prompt):
-    print(f"[DEBUG] Sending prompt to OpenAI: {prompt}")
+    #print(f"[DEBUG] Sending prompt to OpenAI: {prompt}")
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "system", "content": prompt}],
-            temperature=1.5,
-            top_p=0.9
-        )
+        response = client.chat.completions.create(model="gpt-4o",
+                                                  messages=[{
+                                                      "role": "system",
+                                                      "content": prompt
+                                                  }],
+                                                  temperature=1.5,
+                                                  top_p=0.9)
         generated_text = response.choices[0].message.content.strip()
         formatted_text = format_joke(generated_text)
         #print(f"[DEBUG] OpenAI Response: {formatted_text}")
@@ -293,6 +336,7 @@ def generate_openai_prompt(prompt):
     except Exception as e:
         print(f"[ERROR] OpenAI API call failed: {e}")
         return "[ERROR] Unable to generate response. Please try again later."
+
 
 # Scheduled QOTD Task
 @tasks.loop(hours=24)
@@ -303,7 +347,10 @@ async def scheduled_qotd():
             content = generate_openai_prompt(qotd_prompt)
             await channel.send(f"🌟 **Question of the Day:** {content}")
         else:
-            print(f"[ERROR] QOTD channel {channel_id} not found for server {guild_id}")
+            print(
+                f"[ERROR] QOTD channel {channel_id} not found for server {guild_id}"
+            )
+
 
 @bot.command(name="setqotdchannel")
 async def set_qotd_channel(ctx, channel_id: int = None):
@@ -313,7 +360,9 @@ async def set_qotd_channel(ctx, channel_id: int = None):
     qotd_channels[ctx.guild.id] = channel_id  # Store in memory
     save_qotd_schedules()  # Save to Replit DB
 
-    await ctx.send(f"✅ Scheduled QOTD channel set to <#{channel_id}> for this server.")
+    await ctx.send(
+        f"✅ Scheduled QOTD channel set to <#{channel_id}> for this server.")
+
 
 @bot.command(name="startqotd")
 async def start_qotd(ctx):
@@ -368,10 +417,21 @@ async def trivia(ctx, action: str, category: str = None):
 
     elif action.lower() == "stop":
         if guild_id in active_trivia_games:
-            del active_trivia_games[guild_id]
+            await show_leaderboard(ctx, guild_id)  # Show leaderboard before stopping
             await ctx.send("🛑 Trivia game has been stopped.")
         else:
             await ctx.send("❌ No active trivia game found.")
+
+# Prefix Command for Trivia Stats
+@bot.command(name="mystats")
+async def my_stats(ctx):
+    user_id = ctx.author.id
+
+    if f"user_stats_{user_id}" in db:
+        stats = db[f"user_stats_{user_id}"]
+        await ctx.send(f"📊 **{ctx.author.display_name}'s Trivia Stats:**\n✅ Correct Answers: {stats['correct']}\n❌ Wrong Answers: {stats['wrong']}")
+    else:
+        await ctx.send(f"📊 **{ctx.author.display_name}'s Trivia Stats:**\nNo trivia history found.")
 
 
 # Slash Command for Trivia (Start/Stop)
@@ -407,7 +467,7 @@ async def slash_trivia(interaction: discord.Interaction,
 
     elif action == "stop":
         if guild_id in active_trivia_games:
-            del active_trivia_games[guild_id]
+            await show_leaderboard(interaction, guild_id)  # Show leaderboard before stopping
             await interaction.response.send_message(
                 "🛑 Trivia game has been stopped.")
         else:
@@ -454,7 +514,7 @@ async def on_ready():
     global qotd_channels
     qotd_channels = load_qotd_schedules()  # Reload QOTD schedules on restart
     print(f"[DEBUG] Loaded QOTD schedules from Replit DB: {qotd_channels}")
-    
+
     try:
         await tree.sync(guild=None)
         print(
