@@ -8,6 +8,7 @@ from discord import app_commands
 from discord.ui import Select, View
 from dotenv import load_dotenv
 import json
+from replit import db  # Import Replit Database
 
 # Load environment variables
 load_dotenv()
@@ -31,7 +32,8 @@ active_trivia_games = {}
 
 # QOTD Schedule Tracking
 qotd_channel_id = None  # Store the channel ID dynamically for scheduled QOTD
-qotd_channels = {}  # Dictionary to store QOTD channel IDs per server  # Store the channel ID dynamically for scheduled QOTD
+qotd_channels = {
+}  # Dictionary to store QOTD channel IDs per server  # Store the channel ID dynamically for scheduled QOTD
 
 # QOTD prompt
 qotd_prompt = "Generate an engaging Question of the Day for a Discord server. The question should be thought-provoking, fun, and suitable for group discussions. Don't add Question of the Day at beginning and also keep it single sentence. Example: 'What's the most useless talent you have?'"
@@ -43,6 +45,33 @@ joke_dad_prompt = f"Tell me a fresh and funny dad joke. Ensure it's unique and n
 
 joke_gen_prompt = f"Tell me a fresh, unpredictable, and humorous joke. Use different topics like animals, professions, technology, relationships, and daily life. Do not repeat previous jokes. Format the joke strictly as follows: 'Setup sentence. Punchline sentence.' Example: 'Why don’t skeletons fight each other? They don’t have the guts.' Here is a random number to force variation: {random.randint(1, 1000000)}.dont return the random number in response"
 
+# Pickup prompt
+pickup_prompt = (
+    f"Generate a highly flirty, witty, and playful pick-up line. "
+    f"The line should be humorous but never offensive, misogynistic, or inappropriate. "
+    f"Ensure every response is **completely unique**—avoid using common or overused themes. "
+    f"Mix up different styles, including wordplay, pop culture references, unexpected twists, and creative metaphors. "
+    f"Each pick-up line should sound **fresh and original**, not a slight variation of previous ones. "
+    f"Here is a random number to force variation: {random.randint(1, 1000000)} (do not return this number in the response). "
+    f"Example: 'Are you a magician? Because whenever I look at you, everyone else disappears.' "
+)
+
+
+# Load scheduled QOTD channels from Replit DB
+def load_qotd_schedules():
+    if "qotd_channels" in db:
+        return dict(db["qotd_channels"])  # Convert from Replit DB format
+    return {}
+
+
+# Save scheduled QOTD channels to Replit DB
+def save_qotd_schedules():
+    db["qotd_channels"] = qotd_channels  # Store in Replit DB
+
+
+# Initialize QOTD storage from Replit DB
+qotd_channels = load_qotd_schedules()
+
 # Function to generate OpenAI content
 def format_joke(response_text):
     if '' in response_text:
@@ -52,15 +81,25 @@ def format_joke(response_text):
         return f"{parts[0]}.{parts[1]}"
     return response_text
 
+
 # Trivia Logic (Handles Both Prefix & Slash Commands)
-async def start_trivia(source, category: str = "general", num_questions: int = 5, is_slash: bool = False):
-    guild_id = source.guild.id if isinstance(source, commands.Context) else source.guild_id
+async def start_trivia(source,
+                       category: str = "general",
+                       num_questions: int = 5,
+                       is_slash: bool = False):
+    guild_id = source.guild.id if isinstance(
+        source, commands.Context) else source.guild_id
+    user_name = source.user.display_name if is_slash else source.author.display_name  # Get the user's name
 
     if guild_id in active_trivia_games:
         if is_slash:
-            await source.response.send_message("❌ A trivia game is already running in this server. Use `/trivia stop` to end it first.", ephemeral=True)
+            await source.response.send_message(
+                "❌ A trivia game is already running in this server. Use `/trivia stop` to end it first.",
+                ephemeral=True)
         else:
-            await source.send("❌ A trivia game is already running in this server. Use `!trivia stop` to end it first.")
+            await source.send(
+                "❌ A trivia game is already running in this server. Use `!trivia stop` to end it first."
+            )
         return
 
     active_trivia_games[guild_id] = {
@@ -69,80 +108,173 @@ async def start_trivia(source, category: str = "general", num_questions: int = 5
         "scores": {}
     }
 
-    if is_slash:
-        await source.response.defer()  # Acknowledge interaction before sending multiple messages
+    #if is_slash:
+    #    await source.response.defer()  # Acknowledge interaction before sending multiple messages
 
-    for _ in range(num_questions):
-        content = generate_openai_prompt(
-            f"Ask a trivia question in the category of {category} with four multiple-choice answers. "
-            f"Provide four options labeled A, B, C, and D, and indicate the correct answer clearly in the response. "
-            f"Do not include the category name in the question. "
-            f"Ensure the questions are unique and not repeated. "
-            f"Here is a random number to force variation: {random.randint(1, 1000000)} (do not return this number in the response). "
-            f"Respond in a JSON format. Example: "
-            f'{{"question": "What is the capital of France?", "options": ["A: Paris", "B: London", "C: Berlin", "D: Madrid"], "correct_answer": "A"}}'
+    # ✅ **Acknowledge that the game has started**
+    if is_slash:
+        await source.response.defer(
+        )  # Acknowledge command to prevent "Application did not respond"
+        await asyncio.sleep(1)  # Short delay to ensure defer is processed
+        await source.followup.send(
+            f"🎉 {user_name} has started a {category} trivia game! First question in 30 seconds..."
+        )
+    else:
+        await source.send(
+            f"🎉 {user_name} has started a {category} trivia game! First question in 30 seconds..."
         )
 
+    # ✅ **Wait 30 seconds before posting the first question**
+    await asyncio.sleep(30)
+
+    for _ in range(num_questions):
+        # **Check if trivia was stopped before generating a new question**
+        if guild_id not in active_trivia_games:
+            return  # Exit loop if the game was stopped
+
+        content = generate_openai_prompt(
+            f"Generate a unique and engaging trivia question in the category of {category}. "
+            f"The question must be fresh and not a duplicate of any previous trivia session. "
+            f"Avoid generic or frequently used trivia questions—ensure variety by using diverse topics within the category. "
+            f"Vary question structures, wording, and difficulty level to prevent repetitiveness. "
+            f"Provide four multiple-choice answers labeled A, B, C, and D. "
+            f"Ensure only one correct answer is included, and indicate it clearly. "
+            f"Do not mention the category name in the question. "
+            f"Do not reuse questions, phrasing, or concepts from recent requests. "
+            f"Here is a random seed to force uniqueness: {random.randint(1, 1000000)} (do not return this number in the response). "
+            f"Respond in a JSON format. Example: "
+            f'{{"question": "Which planet is known as the Red Planet?", '
+            f'"options": ["A: Mars", "B: Venus", "C: Jupiter", "D: Saturn"], "correct_answer": "A"}}'
+        )
+
+        # Remove markdown JSON formatting if present
+        if content.startswith("```json"):
+            content = content.strip("```json").strip("```")
+
         try:
-            trivia_data = json.loads(content)  # Convert JSON string to dictionary
+            trivia_data = json.loads(
+                content)  # Convert JSON string to dictionary
             question = trivia_data["question"]
-            options = "\n".join(trivia_data["options"])  # Format options as newline-separated
-            correct_answer = trivia_data["correct_answer"]  # Extract correct answer
+            options = "\n".join(
+                trivia_data["options"])  # Format options as newline-separated
+            correct_answer = trivia_data[
+                "correct_answer"]  # Extract correct answer
 
         except (json.JSONDecodeError, KeyError):
-            await source.followup.send("⚠️ Error: Failed to parse trivia question. Skipping this round.", ephemeral=True)
+            await source.followup.send(
+                "⚠️ Error: Failed to parse trivia question. Skipping this round.",
+                ephemeral=True)
             continue  # Skip this question if the response is malformed
+
+        # **Check if trivia was stopped before sending the question**
+        if guild_id not in active_trivia_games:
+            return  # Exit loop if the game was stopped
+
+        question_number = active_trivia_games[guild_id]["questions_asked"] + 1
+        subtext = f"Question {question_number} of {num_questions} | Reply with A, B, C, or D."
 
         # Send the question properly based on command type
         if is_slash:
-            await source.followup.send(f"🧠 **Trivia Question:** {question}\n{options}\nReply with A, B, C, or D to answer.")
+            await source.channel.send(
+                f"🧠 **Trivia Question {question_number}:** {question}\n{options}\n{subtext}"
+            )
         else:
-            await source.send(f"🧠 **Trivia Question:** {question}\n{options}\nReply with A, B, C, or D to answer.")
+            await source.send(
+                f"🧠 **Trivia Question {question_number}:** {question}\n{options}\n{subtext}"
+            )
 
         # Function to check user responses
         def check(m):
-            if is_slash:
-                return m.author.id == source.user.id and m.channel.id == source.channel_id and m.content.upper() in ["A", "B", "C", "D"]
-            else:
-                return m.author.id == source.author.id and m.channel.id == source.channel.id and m.content.upper() in ["A", "B", "C", "D"]
+            return (m.author.id
+                    == (source.user.id if is_slash else source.author.id)
+                    and m.channel.id
+                    == (source.channel_id if is_slash else source.channel.id)
+                    and m.content.upper() in ["A", "B", "C", "D"])
 
-        while True:
+        correct_answered = False
+        while not correct_answered:
             try:
-                response = await bot.wait_for("message", check=check, timeout=30.0)
-                user_answer = response.content.upper()
+                response = await bot.wait_for("message",
+                                              check=check,
+                                              timeout=30.0)
 
+                # **Check if trivia was stopped during user response wait**
+                if guild_id not in active_trivia_games:
+                    return  # Exit loop if the game was stopped
+
+                user_answer = response.content.upper()
                 user_id = response.author.id
 
-                # Update and track user scores
-                active_trivia_games[guild_id]["scores"][user_id] = active_trivia_games[guild_id]["scores"].get(user_id, 0) + (1 if user_answer == correct_answer else 0)
-
                 if user_answer == correct_answer:
+                    active_trivia_games[guild_id]["scores"][
+                        user_id] = active_trivia_games[guild_id]["scores"].get(
+                            user_id, 0) + 1
+                    correct_answered = True  # Exit loop only if the correct answer is given
+
                     if is_slash:
-                        await source.followup.send(f"✅ Correct! Your score: {active_trivia_games[guild_id]['scores'][user_id]}")
+                        await source.channel.send(
+                            f"✅ Correct! {user_name} got it right! Your score: {active_trivia_games[guild_id]['scores'][user_id]}"
+                        )
                     else:
-                        await response.channel.send(f"✅ Correct! Your score: {active_trivia_games[guild_id]['scores'][user_id]}")
+                        await response.channel.send(
+                            f"✅ Correct! {user_name} got it right! Your score: {active_trivia_games[guild_id]['scores'][user_id]}"
+                        )
+
+                    # **Show next question message immediately**
+                    if is_slash:
+                        await source.channel.send(
+                            "⏳ Next question will appear in 15 seconds...")
+                    else:
+                        await source.send(
+                            "⏳ Next question will appear in 15 seconds...")
+
                     break  # Move to next question
                 else:
-                    if is_slash:
-                        await source.followup.send(f"❌ Wrong! Try again! You have 30 seconds remaining.", ephemeral=True)
-                    else:
-                        await response.channel.send(f"❌ Wrong! Try again! You have 30 seconds remaining.")
+                    await response.channel.send(
+                        f"❌ Wrong! Try again! You have 30 seconds remaining.")
 
             except asyncio.TimeoutError:
-                await response.channel.send(f"⏳ Time's up! The correct answer was: {correct_answer}")
+                # **Check if trivia was stopped during timeout**
+                if guild_id not in active_trivia_games:
+                    return  # Exit loop if the game was stopped
+
+                # If no response is received, send timeout message directly in the channel
+                if is_slash:
+                    await source.channel.send(
+                        f"⏳ Time's up! The correct answer was: {correct_answer}"
+                    )
+                else:
+                    await source.send(
+                        f"⏳ Time's up! The correct answer was: {correct_answer}"
+                    )
+
+                # **Show next question message immediately**
+                if is_slash:
+                    await source.channel.send(
+                        "⏳ Next question will appear in 15 seconds...")
+                else:
+                    await source.send(
+                        "⏳ Next question will appear in 15 seconds...")
+
                 break  # Move to next question
 
-        if guild_id in active_trivia_games:
-            active_trivia_games[guild_id]["questions_asked"] += 1
+        # **Check if trivia was stopped before incrementing question count**
+        if guild_id not in active_trivia_games:
+            return  # Exit loop if the game was stopped
 
-    # End game
-    del active_trivia_games[guild_id]
+        active_trivia_games[guild_id]["questions_asked"] += 1
+
+        # **Wait for 15 seconds before the next question**
+        await asyncio.sleep(15)
+
+    # **Check if trivia was stopped before ending the game**
+    if guild_id in active_trivia_games:
+        del active_trivia_games[guild_id]
 
     if is_slash:
-        await source.followup.send("🎉 Trivia game over! Thanks for playing!")
+        await source.channel.send("🎉 Trivia game over! Thanks for playing!")
     else:
         await source.send("🎉 Trivia game over! Thanks for playing!")
-
 
 # Make call to OpenAI to generate Response
 def generate_openai_prompt(prompt):
@@ -156,7 +288,7 @@ def generate_openai_prompt(prompt):
         )
         generated_text = response.choices[0].message.content.strip()
         formatted_text = format_joke(generated_text)
-        print(f"[DEBUG] OpenAI Response: {formatted_text}")
+        #print(f"[DEBUG] OpenAI Response: {formatted_text}")
         return formatted_text
     except Exception as e:
         print(f"[ERROR] OpenAI API call failed: {e}")
@@ -177,17 +309,23 @@ async def scheduled_qotd():
 async def set_qotd_channel(ctx, channel_id: int = None):
     if channel_id is None:
         channel_id = ctx.channel.id  # Default to the current channel if none is provided
-    qotd_channels[ctx.guild.id] = channel_id
+
+    qotd_channels[ctx.guild.id] = channel_id  # Store in memory
+    save_qotd_schedules()  # Save to Replit DB
+
     await ctx.send(f"✅ Scheduled QOTD channel set to <#{channel_id}> for this server.")
 
 @bot.command(name="startqotd")
 async def start_qotd(ctx):
     if ctx.guild.id not in qotd_channels:
-        await ctx.send("[ERROR] No scheduled QOTD channel set for this server. Use !setqotdchannel <channel_id>")
+        await ctx.send(
+            "[ERROR] No scheduled QOTD channel set for this server. Use !setqotdchannel <channel_id>"
+        )
     else:
         if not scheduled_qotd.is_running():
             scheduled_qotd.start()
         await ctx.send("✅ Scheduled QOTD started for this server!")
+
 
 # Prefix Command for QOTD
 @bot.command(name="qotd")
@@ -195,28 +333,25 @@ async def qotd(ctx):
     content = generate_openai_prompt(qotd_prompt)
     await ctx.send(f"🌟 **Question of the Day:** {content}")
 
+
 # Prefix Command for Pick-up Line
 @bot.command(name="pickup")
 async def pickup(ctx):
-    content = generate_openai_prompt("Give me a flirty pick-up line.")
+    content = generate_openai_prompt(pickup_prompt)
     await ctx.send(f"💘 **Pick-up Line:** {content}")
+
 
 # Prefix Command for Jokes
 @bot.command(name="joke")
 async def joke(ctx, category: str = "general"):
     if category == "insult":
-        content = generate_openai_prompt(
-            joke_insult_prompt
-        )
+        content = generate_openai_prompt(joke_insult_prompt)
     elif category == "dad":
-        content = generate_openai_prompt(
-            joke_dad_prompt
-        )
+        content = generate_openai_prompt(joke_dad_prompt)
     else:
-        content = generate_openai_prompt(
-            joke_gen_prompt
-        )
+        content = generate_openai_prompt(joke_gen_prompt)
     await ctx.send(f"🤣 **Joke:** {content}")
+
 
 # Prefix Command for Trivia (Start/Stop)
 @bot.command(name="trivia")
@@ -225,7 +360,9 @@ async def trivia(ctx, action: str, category: str = None):
 
     if action.lower() == "start":
         if not category:
-            await ctx.send("❌ You must specify a category to start trivia. Example: `!trivia start History`")
+            await ctx.send(
+                "❌ You must specify a category to start trivia. Example: `!trivia start History`"
+            )
             return
         await start_trivia(ctx, category, is_slash=False)
 
@@ -236,9 +373,13 @@ async def trivia(ctx, action: str, category: str = None):
         else:
             await ctx.send("❌ No active trivia game found.")
 
+
 # Slash Command for Trivia (Start/Stop)
 @tree.command(name="trivia", description="Start or stop a trivia game")
-@app_commands.describe(action="Choose to start or stop a trivia game", category="Select a trivia category (required for start, optional for stop)")
+@app_commands.describe(
+    action="Choose to start or stop a trivia game",
+    category="Select a trivia category (required for start, optional for stop)"
+)
 @app_commands.choices(action=[
     app_commands.Choice(name="Start", value="start"),
     app_commands.Choice(name="Stop", value="stop")
@@ -251,27 +392,36 @@ async def trivia(ctx, action: str, category: str = None):
     app_commands.Choice(name="Movies", value="Movies"),
     app_commands.Choice(name="Animals", value="Animals")
 ])
-async def slash_trivia(interaction: discord.Interaction, action: str, category: str = None):
+async def slash_trivia(interaction: discord.Interaction,
+                       action: str,
+                       category: str = None):
     guild_id = interaction.guild_id
 
     if action == "start":
         if not category:
-            await interaction.response.send_message("❌ You must specify a category to start trivia. Example: `/trivia start History`", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ You must specify a category to start trivia. Example: `/trivia start History`",
+                ephemeral=True)
             return
         await start_trivia(interaction, category, is_slash=True)
 
     elif action == "stop":
         if guild_id in active_trivia_games:
             del active_trivia_games[guild_id]
-            await interaction.response.send_message("🛑 Trivia game has been stopped.")
+            await interaction.response.send_message(
+                "🛑 Trivia game has been stopped.")
         else:
-            await interaction.response.send_message("❌ No active trivia game found.")
+            await interaction.response.send_message(
+                "❌ No active trivia game found.")
+
 
 # Slash Command for QOTD
 @tree.command(name="qotd", description="Get a Question of the Day")
 async def slash_qotd(interaction: discord.Interaction):
     content = generate_openai_prompt(qotd_prompt)
-    await interaction.response.send_message(f"🌟 **Question of the Day:** {content}")
+    await interaction.response.send_message(
+        f"🌟 **Question of the Day:** {content}")
+
 
 # Slash Command with Joke Category Auto-Completion
 @tree.command(name="joke", description="Get a joke")
@@ -282,59 +432,72 @@ async def slash_qotd(interaction: discord.Interaction):
 ])
 async def slash_joke(interaction: discord.Interaction, category: str):
     if category == "insult":
-        content = generate_openai_prompt(
-            joke_insult_prompt
-        )
+        content = generate_openai_prompt(joke_insult_prompt)
     elif category == "dad":
-        content = generate_openai_prompt(
-            joke_dad_prompt
-        )
+        content = generate_openai_prompt(joke_dad_prompt)
     else:
-        content = generate_openai_prompt(
-            joke_gen_prompt
-        )
+        content = generate_openai_prompt(joke_gen_prompt)
     await interaction.response.send_message(f"🤣 **Joke:** {content}")
+
 
 # Slash Command with Pickup
 @tree.command(name="pickup", description="Get a pick-up line")
 async def slash_pickup(interaction: discord.Interaction):
-    content = generate_openai_prompt("Give me a witty flirty pick-up line.")
+    content = generate_openai_prompt(pickup_prompt)
     await interaction.response.send_message(f"💘 **Pick-up Line:** {content}")
+
 
 @bot.event
 async def on_ready():
     await bot.wait_until_ready()  # Ensure bot is ready before syncing
     print(f'Logged in as {bot.user}')
+    global qotd_channels
+    qotd_channels = load_qotd_schedules()  # Reload QOTD schedules on restart
+    print(f"[DEBUG] Loaded QOTD schedules from Replit DB: {qotd_channels}")
+    
     try:
         await tree.sync(guild=None)
-        print(f"[DEBUG] Synced {len(tree.get_commands())} slash commands globally")
+        print(
+            f"[DEBUG] Synced {len(tree.get_commands())} slash commands globally"
+        )
     except Exception as e:
         print(f"[ERROR] Failed to sync commands globally: {e}")
 
     for guild in bot.guilds:
         try:
             await tree.sync(guild=guild)
-            print(f"[DEBUG] Synced slash commands for {guild.name} ({guild.id})")
+            print(
+                f"[DEBUG] Synced slash commands for {guild.name} ({guild.id})")
         except Exception as e:
-            print(f"[ERROR] Failed to sync commands for {guild.name} ({guild.id}): {e}")
+            print(
+                f"[ERROR] Failed to sync commands for {guild.name} ({guild.id}): {e}"
+            )
     await bot.wait_until_ready()  # Ensure bot is ready before syncing
     print(f'Logged in as {bot.user}')
     try:
         await tree.sync(guild=None)  # Ensure syncing globally
-        print(f"[DEBUG] Synced {len(tree.get_commands())} slash commands globally")
+        print(
+            f"[DEBUG] Synced {len(tree.get_commands())} slash commands globally"
+        )
     except Exception as e:
         print(f"[ERROR] Failed to sync commands: {e}")
     print(f'Logged in as {bot.user}')
     try:
         for guild in bot.guilds:
             await tree.sync()
-            print(f"[DEBUG] Synced slash commands for {guild.name} ({guild.id})")
-            print(f"[DEBUG] Synced {len(bot.tree.get_commands())} slash commands")
+            print(
+                f"[DEBUG] Synced slash commands for {guild.name} ({guild.id})")
+            print(
+                f"[DEBUG] Synced {len(bot.tree.get_commands())} slash commands"
+            )
     except Exception as e:
         print(f"[ERROR] Failed to sync commands: {e}")
 
+
 # Wrap bot.run in a try-except block to handle unexpected crashes
 try:
+    from keep_alive import keep_alive  # Import keep_alive function
+    keep_alive()  # Start the background web server
     bot.run(TOKEN)
 except Exception as e:
     print(f"[ERROR] Bot encountered an unexpected issue: {e}")
