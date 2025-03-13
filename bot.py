@@ -298,6 +298,7 @@ async def start_trivia(source,
 
                 user_answer = response.content.upper()
                 user_id = response.author.id
+                answering_user_name = response.author.display_name  # Get actual user who answered
 
                 if user_answer == correct_answer:
                     active_trivia_games[guild_id]["scores"][
@@ -308,7 +309,7 @@ async def start_trivia(source,
 
                     correct_answered = True  # Exit loop only if the correct answer is given
 
-                    answering_user_name = response.author.display_name  # Get actual user who answered
+                    #answering_user_name = response.author.display_name  # Get actual user who answered
 
                     if is_slash:
                         await source.channel.send(
@@ -333,7 +334,7 @@ async def start_trivia(source,
                         update_user_stats(user_id, wrong_increment=1) # Update wrong answers in Postgres only one per question
                         active_trivia_games[guild_id].setdefault("wrong_attempts", {})[user_id] = True
                     await response.channel.send(
-                        f"❌ Wrong! Try again! You have 30 seconds remaining.")
+                        f"❌ Wrong Answer! {answering_user_name} Try again!")
 
             except asyncio.TimeoutError:
                 # **Check if trivia was stopped during timeout**
@@ -365,6 +366,10 @@ async def start_trivia(source,
             return  # Exit loop if the game was stopped
 
         active_trivia_games[guild_id]["questions_asked"] += 1
+
+        # ✅ **End game immediately if all questions are answered**
+        if active_trivia_games[guild_id]["questions_asked"] >= num_questions:
+            break  # Stop the loop immediately
 
         # **Wait for 15 seconds before the next question**
         await asyncio.sleep(15)
