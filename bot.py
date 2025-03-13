@@ -9,6 +9,7 @@ from discord.ui import Select, View
 from dotenv import load_dotenv
 import json
 from sqlalchemy import URL,create_engine, text
+import time
 
 # Load environment variables
 load_dotenv()
@@ -285,12 +286,15 @@ async def start_trivia(source,
                     == (source.channel_id if is_slash else source.channel.id)
                     and m.content.upper() in ["A", "B", "C", "D"])
 
+        start_time = time.time()  # ✅ Start timer before the loop
         correct_answered = False
         while not correct_answered:
             try:
-                response = await bot.wait_for("message",
-                                              check=check,
-                                              timeout=30.0)
+                remaining_time = 30.0 - (time.time() - start_time)  # ✅ Calculate remaining time
+                if remaining_time <= 0:
+                    raise asyncio.TimeoutError  # ✅ Manually trigger timeout if time runs out
+                
+                response = await bot.wait_for("message", check=check, timeout=remaining_time)
 
                 # **Check if trivia was stopped during user response wait**
                 if guild_id not in active_trivia_games:
