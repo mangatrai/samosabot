@@ -1,5 +1,4 @@
 discord
 openai
 python-dotenv
-sqlite3
 flask
