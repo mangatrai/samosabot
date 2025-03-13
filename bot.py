@@ -466,37 +466,37 @@ async def samosa(ctx, action: str, channel: discord.TextChannel = None):
         if not bot_status_task.is_running():
             bot_status_task.start()
 
+# Prefix Command for SetQOTD Channel
 @bot.command(name="setqotdchannel")
 async def set_qotd_channel(ctx, channel_id: int = None):
     if channel_id is None:
         channel_id = ctx.channel.id  # Default to the current channel if none is provided
 
-    qotd_channels[ctx.guild.id] = channel_id  # Store in memory
-    save_qotd_schedules()  # Save to Postgres DB
-
     # ✅ Reload qotd_channels from database to ensure correct state
     global qotd_channels
     qotd_channels = load_qotd_schedules()
-
+    qotd_channels[ctx.guild.id] = channel_id  # Store in memory
+    save_qotd_schedules()  # Save to Postgres DB
     await ctx.send(
         f"✅ Scheduled QOTD channel set to <#{channel_id}> for this server."
     )
 
+# Prefix Command for StartQOTD
 @bot.command(name="startqotd")
 async def start_qotd(ctx):
     global qotd_channels
-    qotd_channels = load_qotd_schedules()  # ✅ Refresh from database before checking
+
+    qotd_channels = load_qotd_schedules()  # ✅ Refresh data from DB
 
     if ctx.guild.id not in qotd_channels or not qotd_channels[ctx.guild.id]:
-        await ctx.send(
-            "[ERROR] No scheduled QOTD channel set for this server. Use `!setqotdchannel <channel_id>`"
-        )
-        return  # ✅ Prevent accidental start when no data is in DB
+        await ctx.send("[ERROR] No scheduled QOTD channel set for this server. Use `!setqotdchannel <channel_id>`")
+        return
 
-    if not scheduled_qotd.is_running():
+    if not scheduled_qotd.is_running():  # ✅ Prevent duplicate loops
         scheduled_qotd.start()
-
-    await ctx.send("✅ Scheduled QOTD started for this server!")
+        await ctx.send("✅ Scheduled QOTD started for this server!")
+    else:
+        await ctx.send("⚠️ QOTD is already running!")  # ✅ Avoid duplicate start
 
 # Prefix Command for QOTD
 @bot.command(name="qotd")
