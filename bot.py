@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ui import Select, View
 from dotenv import load_dotenv
 import json
-import sqlite3
+from sqlalchemy import URL,create_engine, text
 
 # Load environment variables
 load_dotenv()
@@ -16,36 +16,47 @@ TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PREFIX = '!'
 
+def build_postgres_url():
+    connection_string = URL.create(
+    'postgresql',
+    username=os.getenv("DATABASE_USER"),
+    password=os.getenv("DATABASE_PASSWORD"),
+    host=os.getenv("DATABASE_HOST"),
+    database=os.getenv("DATABASE_NAME"),
+    )
+    return connection_string
+
 # Function to get a database connection
 def get_db_connection():
-    return sqlite3.connect("bot_data.db", check_same_thread=False)
+    # Create SQLAlchemy engine
+    engine = create_engine(build_postgres_url(), pool_pre_ping=True)
+    return engine.connect()
 
 # Database initialization function
 def initialize_database():
-    """Ensures all required tables exist in the SQLite database."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    """Ensures all required tables exist in the PostgreSQL database."""
+    with get_db_connection() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS qotd_channels (
+                guild_id BIGINT PRIMARY KEY,
+                channel_id BIGINT NOT NULL
+            )
+        """))
 
-    cursor.executescript("""
-    CREATE TABLE IF NOT EXISTS qotd_channels (
-        guild_id INTEGER PRIMARY KEY,
-        channel_id INTEGER NOT NULL
-    );
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS user_stats (
+                user_id BIGINT PRIMARY KEY,
+                correct_answers INT DEFAULT 0,
+                wrong_answers INT DEFAULT 0
+            )
+        """))
 
-    CREATE TABLE IF NOT EXISTS user_stats (
-        user_id INTEGER PRIMARY KEY,
-        correct_answers INTEGER DEFAULT 0,
-        wrong_answers INTEGER DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS bot_status_channels (
-        guild_id INTEGER PRIMARY KEY,
-        channel_id INTEGER NOT NULL
-    );
-    """)
-
-    conn.commit()
-    conn.close()
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bot_status_channels (
+                guild_id BIGINT PRIMARY KEY,
+                channel_id BIGINT NOT NULL
+            )
+        """))
 
 # ✅ Initialize database tables before bot starts
 initialize_database()
@@ -90,87 +101,76 @@ pickup_prompt = (
     f"Example: 'Are you a magician? Because whenever I look at you, everyone else disappears.' "
 )
 
-# Load scheduled QOTD channels from SQLite
+# Load scheduled QOTD channels from Postgres
 def load_qotd_schedules():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT guild_id, channel_id FROM qotd_channels")
-    data = {guild_id: channel_id for guild_id, channel_id in cursor.fetchall()}
-    conn.close()
-    return data
+    """Load scheduled QOTD channels from PostgreSQL."""
+    with get_db_connection() as conn:
+        result = conn.execute(text("SELECT guild_id, channel_id FROM qotd_channels"))
+        return {row[0]: row[1] for row in result.fetchall()}  # ✅ Corrected for SQLAlchemy
 
-# Save scheduled QOTD channels to SQLite without deleting all data
+# Save scheduled QOTD channels to Postgres without deleting all data
 def save_qotd_schedules():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    for guild_id, channel_id in qotd_channels.items():
-        cursor.execute("""
-            INSERT INTO qotd_channels (guild_id, channel_id)
-            VALUES (?, ?)
-            ON CONFLICT(guild_id) DO UPDATE SET channel_id = ?
-        """, (guild_id, channel_id, channel_id))  # Corrected
-    conn.commit()
-    conn.close()
+    """Save QOTD channels in the database."""
+    with get_db_connection() as conn:
+        for guild_id, channel_id in qotd_channels.items():
+            conn.execute(text("""
+                INSERT INTO qotd_channels (guild_id, channel_id)
+                VALUES (:guild_id, :channel_id)
+                ON CONFLICT (guild_id) DO UPDATE SET channel_id = EXCLUDED.channel_id
+            """), {"guild_id": guild_id, "channel_id": channel_id})
 
-# Initialize QOTD storage from SQLite
+# Initialize QOTD storage from Postgres
 qotd_channels = load_qotd_schedules()
 
-# Retrieve user stats from SQLite
+# Retrieve user stats from Postgres
 def get_user_stats(user_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT correct_answers, wrong_answers FROM user_stats WHERE user_id = ?", (user_id,))
-    result = cursor.fetchone()
-    conn.close()
+    """Fetch user statistics."""
+    with get_db_connection() as conn:
+        result = conn.execute(text("""
+            SELECT correct_answers, wrong_answers FROM user_stats WHERE user_id = :user_id
+        """), {"user_id": user_id}).fetchone()
+
     return {"correct": result[0], "wrong": result[1]} if result else {"correct": 0, "wrong": 0}
 
-# Update user stats in SQLite
+# Update user stats in Postgres
 def update_user_stats(user_id, correct_increment=0, wrong_increment=0):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO user_stats (user_id, correct_answers, wrong_answers)
-        VALUES (?, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET
-        correct_answers = correct_answers + ?,
-        wrong_answers = wrong_answers + ?
-    """, (user_id, correct_increment, wrong_increment, correct_increment, wrong_increment))
-    conn.commit()
-    conn.close()
+    """Immediately update user statistics in the database."""
+    with get_db_connection() as conn:
+        conn.execute(text("""
+            INSERT INTO user_stats (user_id, correct_answers, wrong_answers)
+            VALUES (:user_id, :correct_inc, :wrong_inc)
+            ON CONFLICT (user_id) DO UPDATE 
+            SET correct_answers = user_stats.correct_answers + EXCLUDED.correct_answers,
+                wrong_answers = user_stats.wrong_answers + EXCLUDED.wrong_answers
+        """), {"user_id": user_id, "correct_inc": correct_increment, "wrong_inc": wrong_increment})
 
-# Load stored bot status channels from SQLite
+# Load stored bot status channels from Postgres
 def load_bot_status_channels():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT guild_id, channel_id FROM bot_status_channels")
-    data = {guild_id: channel_id for guild_id, channel_id in cursor.fetchall()}
-    conn.close()
-    return data
+    """Load bot status channels from PostgreSQL."""
+    with get_db_connection() as conn:
+        result = conn.execute(text("SELECT guild_id, channel_id FROM bot_status_channels"))
+        return {row[0]: row[1] for row in result.fetchall()}  # ✅ Corrected for SQLAlchemy
 
-# Save bot status channel to SQLite
+# Save bot status channel to Postgres
 def save_bot_status_channel(guild_id, channel_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO bot_status_channels (guild_id, channel_id)
-        VALUES (?, ?)
-        ON CONFLICT(guild_id) DO UPDATE SET channel_id = ?
-    """, (guild_id, channel_id, channel_id))  # Fixed SQLite syntax
-    conn.commit()
-    conn.close()
+    """Save bot status channel in the database."""
+    with get_db_connection() as conn:
+        conn.execute(text("""
+            INSERT INTO bot_status_channels (guild_id, channel_id)
+            VALUES (:guild_id, :channel_id)
+            ON CONFLICT (guild_id) DO UPDATE SET channel_id = EXCLUDED.channel_id
+        """), {"guild_id": guild_id, "channel_id": channel_id})
 
 # Initialize bot status channels
 bot_status_channels = load_bot_status_channels()
 
 # Function to generate OpenAI content
 def format_joke(response_text):
-    if '' in response_text:
-        return response_text  # If already formatted correctly with a newline
+    """Formats a joke response properly by ensuring correct sentence structure."""
     if '. ' in response_text:
         parts = response_text.split('. ', 1)
         return f"{parts[0]}.{parts[1]}"
-    return response_text
-
+    return response_text.strip()
 
 # Trivia Logic (Handles Both Prefix & Slash Commands)
 async def start_trivia(source,
@@ -300,7 +300,7 @@ async def start_trivia(source,
                     active_trivia_games[guild_id]["scores"][
                         user_id] = active_trivia_games[guild_id]["scores"].get(
                             user_id, 0) + 1
-                    # Update persistent stats in SQLite
+                    # Update persistent stats in Postgres
                     update_user_stats(user_id, correct_increment=1)
 
                     correct_answered = True  # Exit loop only if the correct answer is given
@@ -327,7 +327,7 @@ async def start_trivia(source,
                     break  # Move to next question
                 else:
                     if not active_trivia_games[guild_id].get("wrong_attempts", {}).get(user_id, False):
-                        update_user_stats(user_id, wrong_increment=1) # Update wrong answers in SQLite only one per question
+                        update_user_stats(user_id, wrong_increment=1) # Update wrong answers in Postgres only one per question
                         active_trivia_games[guild_id].setdefault("wrong_attempts", {})[user_id] = True
                     await response.channel.send(
                         f"❌ Wrong! Try again! You have 30 seconds remaining.")
@@ -400,23 +400,21 @@ async def show_leaderboard(source, guild_id):
             await source.channel.send(f"🎉 Trivia game over! Here are the final results:\n{leaderboard}")
 
         # Remove the game session
-        del active_trivia_games[guild_id]
+        if guild_id in active_trivia_games:
+            active_trivia_games.pop(guild_id, None)
 
 # Make call to OpenAI to generate Response
 def generate_openai_prompt(prompt):
-    #print(f"[DEBUG] Sending prompt to OpenAI: {prompt}")
+    """Generates a response from OpenAI using the given prompt."""
     try:
-        response = client.chat.completions.create(model="gpt-4o",
-                                                  messages=[{
-                                                      "role": "system",
-                                                      "content": prompt
-                                                  }],
-                                                  temperature=1.5,
-                                                  top_p=0.9)
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "system", "content": prompt}],
+            temperature=1.5,
+            top_p=0.9
+        )
         generated_text = response.choices[0].message.content.strip()
-        formatted_text = format_joke(generated_text)
-        #print(f"[DEBUG] OpenAI Response: {formatted_text}")
-        return formatted_text
+        return format_joke(generated_text)  # Format the joke response
     except Exception as e:
         print(f"[ERROR] OpenAI API call failed: {e}")
         return "[ERROR] Unable to generate response. Please try again later."
@@ -437,23 +435,18 @@ async def scheduled_qotd():
 # Scheduled BotStatus Task
 @tasks.loop(minutes=30)
 async def bot_status_task():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT guild_id, channel_id FROM bot_status_channels")
-    bot_status_channels = cursor.fetchall()
-    conn.close()
-
+    """Send periodic bot status updates."""
+    with get_db_connection() as conn:
+        bot_status_channels = conn.execute(text("SELECT guild_id, channel_id FROM bot_status_channels")).fetchall()
+    
     for guild_id, channel_id in bot_status_channels:
         channel = bot.get_channel(int(channel_id))
         if channel:
             await channel.send("✅ **SamosaBot is up and running!** 🔥")
         else:
             print(f"[WARNING] Could not find channel {channel_id} for guild {guild_id}. Removing entry.")
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM bot_status_channels WHERE guild_id = ?", (guild_id,))
-            conn.commit()
-            conn.close()
+            with get_db_connection() as conn:
+                conn.execute(text("DELETE FROM bot_status_channels WHERE guild_id = :guild_id"), {"guild_id": guild_id})
 
 # Prefix Command for Bot Status
 @bot.command(name="samosa")
@@ -462,7 +455,7 @@ async def samosa(ctx, action: str, channel: discord.TextChannel = None):
         channel_id = channel.id if channel else ctx.channel.id  # Use input channel or default to current channel
         guild_id = ctx.guild.id
 
-       # Store bot status channel in SQLite
+       # Store bot status channel in Postgres
         save_bot_status_channel(guild_id, channel_id)
         await ctx.send(f"✅ Bot status updates will be sent to <#{channel_id}> every 10 minutes.")
 
@@ -476,7 +469,7 @@ async def set_qotd_channel(ctx, channel_id: int = None):
         channel_id = ctx.channel.id  # Default to the current channel if none is provided
 
     qotd_channels[ctx.guild.id] = channel_id  # Store in memory
-    save_qotd_schedules()  # Save to Replit DB
+    save_qotd_schedules()  # Save to Postgres DB
 
     await ctx.send(
         f"✅ Scheduled QOTD channel set to <#{channel_id}> for this server.")
@@ -536,7 +529,7 @@ async def trivia(ctx, action: str, category: str = None):
     elif action.lower() == "stop":
         if guild_id in active_trivia_games:
             await show_leaderboard(ctx, guild_id)  # Show leaderboard **before stopping the game**
-            del active_trivia_games[guild_id]  # Remove active session
+            active_trivia_games.pop(guild_id,None)  # Remove active session
             await ctx.send("🛑 Trivia game has been stopped.")
         else:
             await ctx.send("❌ No active trivia game found.")
@@ -558,7 +551,7 @@ async def slash_samosa(interaction: discord.Interaction, action: str, channel: d
         channel_id = channel.id if channel else interaction.channel_id
         guild_id = interaction.guild_id
 
-        # Store bot status channel in SQLite
+        # Store bot status channel in Postgres
         save_bot_status_channel(guild_id, channel_id)
 
         await interaction.response.send_message(f"✅ Bot status updates will be sent to <#{channel_id}> every 10 minutes.", ephemeral=True)
@@ -645,7 +638,7 @@ async def on_ready():
     await bot.wait_until_ready()  # Ensure bot is fully ready before proceeding
     print(f'Logged in as {bot.user}')
 
-    # Load stored QOTD schedules and bot status channels from SQLite
+    # Load stored QOTD schedules and bot status channels from Postgres
     global qotd_channels, bot_status_channels
     qotd_channels = load_qotd_schedules()
     bot_status_channels = load_bot_status_channels()
