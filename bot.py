@@ -442,7 +442,7 @@ async def scheduled_qotd():
             )
 
 # Scheduled BotStatus Task
-@tasks.loop(minutes=10)
+@tasks.loop(minutes=30)
 async def bot_status_task():
     conn = get_db_connection()
     cursor = conn.cursor()
