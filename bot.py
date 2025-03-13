@@ -457,7 +457,7 @@ async def samosa(ctx, action: str, channel: discord.TextChannel = None):
 
        # Store bot status channel in Postgres
         save_bot_status_channel(guild_id, channel_id)
-        await ctx.send(f"✅ Bot status updates will be sent to <#{channel_id}> every 10 minutes.")
+        await ctx.send(f"✅ Bot status updates will be sent to <#{channel_id}> every 30 minutes.")
 
         # Start the scheduled bot status task if not running
         if not bot_status_task.is_running():
