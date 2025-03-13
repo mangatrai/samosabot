@@ -1,4 +1,5 @@
 discord
 openai
 python-dotenv
-asyncpg
+sqlite3
+flask
