@@ -338,7 +338,7 @@ async def start_trivia(source,
                         update_user_stats(user_id, wrong_increment=1) # Update wrong answers in Postgres only one per question
                         active_trivia_games[guild_id].setdefault("wrong_attempts", {})[user_id] = True
                     await response.channel.send(
-                        f"❌ Wrong Answer! {answering_user_name} Try again!")
+                        f"❌ Wrong Answer! {answering_user_name} Try again! {remaining_time} seconds remaining" )
 
             except asyncio.TimeoutError:
                 # **Check if trivia was stopped during timeout**
