@@ -8,13 +8,47 @@ from discord import app_commands
 from discord.ui import Select, View
 from dotenv import load_dotenv
 import json
-from replit import db  # Import Replit Database
+import sqlite3
 
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PREFIX = '!'
+
+# Function to get a database connection
+def get_db_connection():
+    return sqlite3.connect("bot_data.db", check_same_thread=False)
+
+# Database initialization function
+def initialize_database():
+    """Ensures all required tables exist in the SQLite database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.executescript("""
+    CREATE TABLE IF NOT EXISTS qotd_channels (
+        guild_id INTEGER PRIMARY KEY,
+        channel_id INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS user_stats (
+        user_id INTEGER PRIMARY KEY,
+        correct_answers INTEGER DEFAULT 0,
+        wrong_answers INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS bot_status_channels (
+        guild_id INTEGER PRIMARY KEY,
+        channel_id INTEGER NOT NULL
+    );
+    """)
+
+    conn.commit()
+    conn.close()
+
+# ✅ Initialize database tables before bot starts
+initialize_database()
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -56,22 +90,77 @@ pickup_prompt = (
     f"Example: 'Are you a magician? Because whenever I look at you, everyone else disappears.' "
 )
 
-
-# Load scheduled QOTD channels from Replit DB
+# Load scheduled QOTD channels from SQLite
 def load_qotd_schedules():
-    if "qotd_channels" in db:
-        return dict(db["qotd_channels"])  # Convert from Replit DB format
-    return {}
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT guild_id, channel_id FROM qotd_channels")
+    data = {guild_id: channel_id for guild_id, channel_id in cursor.fetchall()}
+    conn.close()
+    return data
 
-
-# Save scheduled QOTD channels to Replit DB
+# Save scheduled QOTD channels to SQLite without deleting all data
 def save_qotd_schedules():
-    db["qotd_channels"] = qotd_channels  # Store in Replit DB
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    for guild_id, channel_id in qotd_channels.items():
+        cursor.execute("""
+            INSERT INTO qotd_channels (guild_id, channel_id)
+            VALUES (?, ?)
+            ON CONFLICT(guild_id) DO UPDATE SET channel_id = ?
+        """, (guild_id, channel_id, channel_id))  # Corrected
+    conn.commit()
+    conn.close()
 
-
-# Initialize QOTD storage from Replit DB
+# Initialize QOTD storage from SQLite
 qotd_channels = load_qotd_schedules()
 
+# Retrieve user stats from SQLite
+def get_user_stats(user_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT correct_answers, wrong_answers FROM user_stats WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return {"correct": result[0], "wrong": result[1]} if result else {"correct": 0, "wrong": 0}
+
+# Update user stats in SQLite
+def update_user_stats(user_id, correct_increment=0, wrong_increment=0):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO user_stats (user_id, correct_answers, wrong_answers)
+        VALUES (?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+        correct_answers = correct_answers + ?,
+        wrong_answers = wrong_answers + ?
+    """, (user_id, correct_increment, wrong_increment, correct_increment, wrong_increment))
+    conn.commit()
+    conn.close()
+
+# Load stored bot status channels from SQLite
+def load_bot_status_channels():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT guild_id, channel_id FROM bot_status_channels")
+    data = {guild_id: channel_id for guild_id, channel_id in cursor.fetchall()}
+    conn.close()
+    return data
+
+# Save bot status channel to SQLite
+def save_bot_status_channel(guild_id, channel_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO bot_status_channels (guild_id, channel_id)
+        VALUES (?, ?)
+        ON CONFLICT(guild_id) DO UPDATE SET channel_id = ?
+    """, (guild_id, channel_id, channel_id))  # Fixed SQLite syntax
+    conn.commit()
+    conn.close()
+
+# Initialize bot status channels
+bot_status_channels = load_bot_status_channels()
 
 # Function to generate OpenAI content
 def format_joke(response_text):
@@ -212,15 +301,15 @@ async def start_trivia(source,
                     db[f"user_stats_{user_id}"] = {"correct": 0, "wrong": 0}
 
                 # Retrieve user's stats
-                user_stats = db[f"user_stats_{user_id}"]
+                user_stats = get_user_stats(user_id)
 
                 if user_answer == correct_answer:
                     active_trivia_games[guild_id]["scores"][
                         user_id] = active_trivia_games[guild_id]["scores"].get(
                             user_id, 0) + 1
-                    # Update persistent stats in Replit DB
-                    user_stats["correct"] += 1
-                    db[f"user_stats_{user_id}"] = user_stats  # Save back to DB
+                    # Update persistent stats in SQLite
+                    update_user_stats(user_id, correct_increment=1)
+
                     correct_answered = True  # Exit loop only if the correct answer is given
 
                     answering_user_name = response.author.display_name  # Get actual user who answered
@@ -245,8 +334,7 @@ async def start_trivia(source,
                     break  # Move to next question
                 else:
                     if not active_trivia_games[guild_id].get("wrong_attempts", {}).get(user_id, False):
-                        user_stats["wrong"] += 1  # Count wrong answer only once per question
-                        db[f"user_stats_{user_id}"] = user_stats  # Save back to DB
+                        update_user_stats(user_id, wrong_increment=1) # Update wrong answers in SQLite only one per question
                         active_trivia_games[guild_id].setdefault("wrong_attempts", {})[user_id] = True
                     await response.channel.send(
                         f"❌ Wrong! Try again! You have 30 seconds remaining.")
@@ -305,8 +393,11 @@ async def show_leaderboard(source, guild_id):
 
         leaderboard_entries = []
         for user_id, score in sorted_scores:
-            user = bot.get_user(user_id) or await bot.fetch_user(user_id)  # Fetch user if not in cache
-            leaderboard_entries.append(f"🏆 {user.display_name}: {score} correct")
+            user = bot.get_user(user_id) or await bot.fetch_user(user_id)  # Fetch user safely
+            if user:
+                leaderboard_entries.append(f"🏆 {user.display_name}: {score} correct")
+            else:
+                leaderboard_entries.append(f"🏆 Unknown User ({user_id}): {score} correct")  # Safe fallback
 
         leaderboard = "\n".join(leaderboard_entries)
 
@@ -353,14 +444,23 @@ async def scheduled_qotd():
 # Scheduled BotStatus Task
 @tasks.loop(minutes=10)
 async def bot_status_task():
-    if "bot_status_channels" in db:
-        for guild_id, channel_id in db["bot_status_channels"].items():
-            channel = bot.get_channel(int(channel_id))
-            if channel:
-                await channel.send("✅ **SamosaBot is up and running!** 🔥")
-            else:
-                print(f"[WARNING] Could not find channel {channel_id} for guild {guild_id}. Removing entry.")
-                del db["bot_status_channels"][guild_id]  # Cleanup invalid channels
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT guild_id, channel_id FROM bot_status_channels")
+    bot_status_channels = cursor.fetchall()
+    conn.close()
+
+    for guild_id, channel_id in bot_status_channels:
+        channel = bot.get_channel(int(channel_id))
+        if channel:
+            await channel.send("✅ **SamosaBot is up and running!** 🔥")
+        else:
+            print(f"[WARNING] Could not find channel {channel_id} for guild {guild_id}. Removing entry.")
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM bot_status_channels WHERE guild_id = ?", (guild_id,))
+            conn.commit()
+            conn.close()
 
 # Prefix Command for Bot Status
 @bot.command(name="samosa")
@@ -369,9 +469,8 @@ async def samosa(ctx, action: str, channel: discord.TextChannel = None):
         channel_id = channel.id if channel else ctx.channel.id  # Use input channel or default to current channel
         guild_id = ctx.guild.id
 
-        # Store bot status channel in Replit DB
-        db["bot_status_channels"] = db.get("bot_status_channels", {})
-        db["bot_status_channels"][str(guild_id)] = channel_id
+       # Store bot status channel in SQLite
+        save_bot_status_channel(guild_id, channel_id)
         await ctx.send(f"✅ Bot status updates will be sent to <#{channel_id}> every 10 minutes.")
 
         # Start the scheduled bot status task if not running
@@ -443,7 +542,8 @@ async def trivia(ctx, action: str, category: str = None):
 
     elif action.lower() == "stop":
         if guild_id in active_trivia_games:
-            await show_leaderboard(ctx, guild_id)  # Show leaderboard before stopping
+            await show_leaderboard(ctx, guild_id)  # Show leaderboard **before stopping the game**
+            del active_trivia_games[guild_id]  # Remove active session
             await ctx.send("🛑 Trivia game has been stopped.")
         else:
             await ctx.send("❌ No active trivia game found.")
@@ -452,12 +552,9 @@ async def trivia(ctx, action: str, category: str = None):
 @bot.command(name="mystats")
 async def my_stats(ctx):
     user_id = ctx.author.id
+    stats = get_user_stats(user_id)
 
-    if f"user_stats_{user_id}" in db:
-        stats = db[f"user_stats_{user_id}"]
-        await ctx.send(f"📊 **{ctx.author.display_name}'s Trivia Stats:**\n✅ Correct Answers: {stats['correct']}\n❌ Wrong Answers: {stats['wrong']}")
-    else:
-        await ctx.send(f"📊 **{ctx.author.display_name}'s Trivia Stats:**\nNo trivia history found.")
+    await ctx.send(f"📊 **{ctx.author.display_name}'s Trivia Stats:**\n✅ Correct Answers: {stats['correct']}\n❌ Wrong Answers: {stats['wrong']}")
 
 # Slash Command for Bot Status
 @tree.command(name="samosa", description="Check or enable bot status updates")
@@ -468,9 +565,9 @@ async def slash_samosa(interaction: discord.Interaction, action: str, channel: d
         channel_id = channel.id if channel else interaction.channel_id
         guild_id = interaction.guild_id
 
-        # Store bot status channel in Replit DB
-        db["bot_status_channels"] = db.get("bot_status_channels", {})
-        db["bot_status_channels"][str(guild_id)] = channel_id
+        # Store bot status channel in SQLite
+        save_bot_status_channel(guild_id, channel_id)
+
         await interaction.response.send_message(f"✅ Bot status updates will be sent to <#{channel_id}> every 10 minutes.", ephemeral=True)
 
         # Start the scheduled bot status task if not running
@@ -555,16 +652,17 @@ async def on_ready():
     await bot.wait_until_ready()  # Ensure bot is fully ready before proceeding
     print(f'Logged in as {bot.user}')
 
-    # Load stored QOTD schedules from Replit DB
-    global qotd_channels
-    qotd_channels = load_qotd_schedules()  # Reload QOTD schedules on restart
-    print(f"[DEBUG] Loaded QOTD schedules from Replit DB: {qotd_channels}")
+    # Load stored QOTD schedules and bot status channels from SQLite
+    global qotd_channels, bot_status_channels
+    qotd_channels = load_qotd_schedules()
+    bot_status_channels = load_bot_status_channels()
 
-    # Load stored bot status channels from Replit DB
-    if "bot_status_channels" in db and db["bot_status_channels"]:
-        print("[DEBUG] Loaded bot status channels from Replit DB:", db["bot_status_channels"])
-        if not bot_status_task.is_running():
-            bot_status_task.start()  # Start the bot status task if not running
+    print(f"[DEBUG] Loaded QOTD schedules: {qotd_channels}")
+    print(f"[DEBUG] Loaded bot status channels: {bot_status_channels}")
+
+    # Start bot status task if channels are stored
+    if bot_status_channels and not bot_status_task.is_running():
+        bot_status_task.start()
 
     # Sync slash commands globally
     try:
