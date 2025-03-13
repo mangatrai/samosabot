@@ -105,10 +105,10 @@ pickup_prompt = (
 def load_qotd_schedules():
     """Load scheduled QOTD channels from PostgreSQL."""
     with get_db_connection() as conn:
-        result = conn.execute(text("SELECT guild_id, channel_id FROM qotd_channels"))
-        return {row[0]: row[1] for row in result.fetchall()}  # ✅ Corrected for SQLAlchemy
+        result = conn.execute(text("SELECT guild_id, channel_id FROM qotd_channels")).fetchall()
+        return {row[0]: row[1] for row in result} if result else {}  # ✅ Ensure empty dict
 
-# Save scheduled QOTD channels to Postgres without deleting all data
+# Save scheduled QOTD channels to Postgres
 def save_qotd_schedules():
     """Save QOTD channels in the database."""
     with get_db_connection() as conn:
@@ -118,6 +118,7 @@ def save_qotd_schedules():
                 VALUES (:guild_id, :channel_id)
                 ON CONFLICT (guild_id) DO UPDATE SET channel_id = EXCLUDED.channel_id
             """), {"guild_id": guild_id, "channel_id": channel_id})
+        conn.commit()  # ✅ Required since multiple writes happen inside a loop
 
 # Initialize QOTD storage from Postgres
 qotd_channels = load_qotd_schedules()
@@ -143,6 +144,7 @@ def update_user_stats(user_id, correct_increment=0, wrong_increment=0):
             SET correct_answers = user_stats.correct_answers + EXCLUDED.correct_answers,
                 wrong_answers = user_stats.wrong_answers + EXCLUDED.wrong_answers
         """), {"user_id": user_id, "correct_inc": correct_increment, "wrong_inc": wrong_increment})
+        conn.commit()  # ✅ Needed for updates to persist
 
 # Load stored bot status channels from Postgres
 def load_bot_status_channels():
@@ -160,6 +162,7 @@ def save_bot_status_channel(guild_id, channel_id):
             VALUES (:guild_id, :channel_id)
             ON CONFLICT (guild_id) DO UPDATE SET channel_id = EXCLUDED.channel_id
         """), {"guild_id": guild_id, "channel_id": channel_id})
+        conn.commit()  # ✅ Ensures persistence
 
 # Initialize bot status channels
 bot_status_channels = load_bot_status_channels()
@@ -471,21 +474,29 @@ async def set_qotd_channel(ctx, channel_id: int = None):
     qotd_channels[ctx.guild.id] = channel_id  # Store in memory
     save_qotd_schedules()  # Save to Postgres DB
 
-    await ctx.send(
-        f"✅ Scheduled QOTD channel set to <#{channel_id}> for this server.")
+    # ✅ Reload qotd_channels from database to ensure correct state
+    global qotd_channels
+    qotd_channels = load_qotd_schedules()
 
+    await ctx.send(
+        f"✅ Scheduled QOTD channel set to <#{channel_id}> for this server."
+    )
 
 @bot.command(name="startqotd")
 async def start_qotd(ctx):
-    if ctx.guild.id not in qotd_channels:
-        await ctx.send(
-            "[ERROR] No scheduled QOTD channel set for this server. Use !setqotdchannel <channel_id>"
-        )
-    else:
-        if not scheduled_qotd.is_running():
-            scheduled_qotd.start()
-        await ctx.send("✅ Scheduled QOTD started for this server!")
+    global qotd_channels
+    qotd_channels = load_qotd_schedules()  # ✅ Refresh from database before checking
 
+    if ctx.guild.id not in qotd_channels or not qotd_channels[ctx.guild.id]:
+        await ctx.send(
+            "[ERROR] No scheduled QOTD channel set for this server. Use `!setqotdchannel <channel_id>`"
+        )
+        return  # ✅ Prevent accidental start when no data is in DB
+
+    if not scheduled_qotd.is_running():
+        scheduled_qotd.start()
+
+    await ctx.send("✅ Scheduled QOTD started for this server!")
 
 # Prefix Command for QOTD
 @bot.command(name="qotd")
