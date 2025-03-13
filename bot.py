@@ -337,7 +337,6 @@ def generate_openai_prompt(prompt):
         print(f"[ERROR] OpenAI API call failed: {e}")
         return "[ERROR] Unable to generate response. Please try again later."
 
-
 # Scheduled QOTD Task
 @tasks.loop(hours=24)
 async def scheduled_qotd():
@@ -351,6 +350,33 @@ async def scheduled_qotd():
                 f"[ERROR] QOTD channel {channel_id} not found for server {guild_id}"
             )
 
+# Scheduled BotStatus Task
+@tasks.loop(minutes=10)
+async def bot_status_task():
+    if "bot_status_channels" in db:
+        for guild_id, channel_id in db["bot_status_channels"].items():
+            channel = bot.get_channel(int(channel_id))
+            if channel:
+                await channel.send("✅ **SamosaBot is up and running!** 🔥")
+            else:
+                print(f"[WARNING] Could not find channel {channel_id} for guild {guild_id}. Removing entry.")
+                del db["bot_status_channels"][guild_id]  # Cleanup invalid channels
+
+# Prefix Command for Bot Status
+@bot.command(name="samosa")
+async def samosa(ctx, action: str, channel: discord.TextChannel = None):
+    if action.lower() == "botstatus":
+        channel_id = channel.id if channel else ctx.channel.id  # Use input channel or default to current channel
+        guild_id = ctx.guild.id
+
+        # Store bot status channel in Replit DB
+        db["bot_status_channels"] = db.get("bot_status_channels", {})
+        db["bot_status_channels"][str(guild_id)] = channel_id
+        await ctx.send(f"✅ Bot status updates will be sent to <#{channel_id}> every 10 minutes.")
+
+        # Start the scheduled bot status task if not running
+        if not bot_status_task.is_running():
+            bot_status_task.start()
 
 @bot.command(name="setqotdchannel")
 async def set_qotd_channel(ctx, channel_id: int = None):
@@ -433,6 +459,23 @@ async def my_stats(ctx):
     else:
         await ctx.send(f"📊 **{ctx.author.display_name}'s Trivia Stats:**\nNo trivia history found.")
 
+# Slash Command for Bot Status
+@tree.command(name="samosa", description="Check or enable bot status updates")
+@app_commands.describe(action="Enable bot status updates", channel="Select a channel (optional, defaults to current)")
+@app_commands.choices(action=[app_commands.Choice(name="Bot Status", value="botstatus")])
+async def slash_samosa(interaction: discord.Interaction, action: str, channel: discord.TextChannel = None):
+    if action == "botstatus":
+        channel_id = channel.id if channel else interaction.channel_id
+        guild_id = interaction.guild_id
+
+        # Store bot status channel in Replit DB
+        db["bot_status_channels"] = db.get("bot_status_channels", {})
+        db["bot_status_channels"][str(guild_id)] = channel_id
+        await interaction.response.send_message(f"✅ Bot status updates will be sent to <#{channel_id}> every 10 minutes.", ephemeral=True)
+
+        # Start the scheduled bot status task if not running
+        if not bot_status_task.is_running():
+            bot_status_task.start()
 
 # Slash Command for Trivia (Start/Stop)
 @tree.command(name="trivia", description="Start or stop a trivia game")
@@ -509,50 +552,34 @@ async def slash_pickup(interaction: discord.Interaction):
 
 @bot.event
 async def on_ready():
-    await bot.wait_until_ready()  # Ensure bot is ready before syncing
+    await bot.wait_until_ready()  # Ensure bot is fully ready before proceeding
     print(f'Logged in as {bot.user}')
+
+    # Load stored QOTD schedules from Replit DB
     global qotd_channels
     qotd_channels = load_qotd_schedules()  # Reload QOTD schedules on restart
     print(f"[DEBUG] Loaded QOTD schedules from Replit DB: {qotd_channels}")
 
+    # Load stored bot status channels from Replit DB
+    if "bot_status_channels" in db and db["bot_status_channels"]:
+        print("[DEBUG] Loaded bot status channels from Replit DB:", db["bot_status_channels"])
+        if not bot_status_task.is_running():
+            bot_status_task.start()  # Start the bot status task if not running
+
+    # Sync slash commands globally
     try:
         await tree.sync(guild=None)
-        print(
-            f"[DEBUG] Synced {len(tree.get_commands())} slash commands globally"
-        )
+        print(f"[DEBUG] Synced {len(tree.get_commands())} slash commands globally")
     except Exception as e:
         print(f"[ERROR] Failed to sync commands globally: {e}")
 
+    # Sync slash commands for each guild
     for guild in bot.guilds:
         try:
             await tree.sync(guild=guild)
-            print(
-                f"[DEBUG] Synced slash commands for {guild.name} ({guild.id})")
+            print(f"[DEBUG] Synced slash commands for {guild.name} ({guild.id})")
         except Exception as e:
-            print(
-                f"[ERROR] Failed to sync commands for {guild.name} ({guild.id}): {e}"
-            )
-    await bot.wait_until_ready()  # Ensure bot is ready before syncing
-    print(f'Logged in as {bot.user}')
-    try:
-        await tree.sync(guild=None)  # Ensure syncing globally
-        print(
-            f"[DEBUG] Synced {len(tree.get_commands())} slash commands globally"
-        )
-    except Exception as e:
-        print(f"[ERROR] Failed to sync commands: {e}")
-    print(f'Logged in as {bot.user}')
-    try:
-        for guild in bot.guilds:
-            await tree.sync()
-            print(
-                f"[DEBUG] Synced slash commands for {guild.name} ({guild.id})")
-            print(
-                f"[DEBUG] Synced {len(bot.tree.get_commands())} slash commands"
-            )
-    except Exception as e:
-        print(f"[ERROR] Failed to sync commands: {e}")
-
+            print(f"[ERROR] Failed to sync commands for {guild.name} ({guild.id}): {e}")
 
 # Wrap bot.run in a try-except block to handle unexpected crashes
 try:
