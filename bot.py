@@ -296,13 +296,6 @@ async def start_trivia(source,
                 user_answer = response.content.upper()
                 user_id = response.author.id
 
-                # Initialize user stats in Replit DB if not present
-                if f"user_stats_{user_id}" not in db:
-                    db[f"user_stats_{user_id}"] = {"correct": 0, "wrong": 0}
-
-                # Retrieve user's stats
-                user_stats = get_user_stats(user_id)
-
                 if user_answer == correct_answer:
                     active_trivia_games[guild_id]["scores"][
                         user_id] = active_trivia_games[guild_id]["scores"].get(
