@@ -33,31 +33,39 @@ def get_db_connection():
     engine = create_engine(build_postgres_url(), pool_pre_ping=True)
     return engine.connect()
 
-# Database initialization function
+# Function to initialize database tables
 def initialize_database():
     """Ensures all required tables exist in the PostgreSQL database."""
-    with get_db_connection() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS qotd_channels (
-                guild_id BIGINT PRIMARY KEY,
-                channel_id BIGINT NOT NULL
-            )
-        """))
+    try:
+        with get_db_connection() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS qotd_channels (
+                    guild_id BIGINT PRIMARY KEY,
+                    channel_id BIGINT NOT NULL
+                )
+            """))
 
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS user_stats (
-                user_id BIGINT PRIMARY KEY,
-                correct_answers INT DEFAULT 0,
-                wrong_answers INT DEFAULT 0
-            )
-        """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS bot_status_channels (
+                    guild_id BIGINT PRIMARY KEY,
+                    channel_id BIGINT NOT NULL
+                )
+            """))
 
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS bot_status_channels (
-                guild_id BIGINT PRIMARY KEY,
-                channel_id BIGINT NOT NULL
-            )
-        """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS trivia_leaderboard (
+                    user_id BIGINT PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    total_correct INT DEFAULT 0,
+                    total_wrong INT DEFAULT 0
+                )
+            """))
+
+            conn.commit()  # ✅ Ensure changes are committed
+            print("✅ Tables created successfully!")
+    
+    except Exception as e:
+        print(f"❌ Error creating tables: {e}")  # Print the actual error
 
 # ✅ Initialize database tables before bot starts
 initialize_database()
@@ -82,14 +90,48 @@ qotd_channels = {
 }  # Dictionary to store QOTD channel IDs per server  # Store the channel ID dynamically for scheduled QOTD
 
 # QOTD prompt
-qotd_prompt = "Generate an engaging Question of the Day for a Discord server. The question should be thought-provoking, fun, and suitable for group discussions. Don't add Question of the Day at beginning and also keep it single sentence. Example: 'What's the most useless talent you have?'"
+qotd_prompt = f"Generate an engaging Question of the Day for a Discord server. The question should be thought-provoking, fun, and suitable for group discussions. Don't add Question of the Day at beginning and also keep it single sentence. Example: 'What's the most useless talent you have?'. Here is a random number to force variation: {random.randint(1, 1000000)}. dont return the random number in response"
 
 #jokes prompt
-joke_insult_prompt = f"Generate a witty and humorous insult joke. It should roast someone in a fun and clever way, making sure it's playful and not overly offensive. Format the joke strictly as follows: 'Setup sentence. Punchline sentence. Avoid generic responses and ensure it's unique."
+joke_insult_prompt = f"""
+Generate a witty and humorous insult joke. It should roast someone in a fun and clever way, making sure it's playful and not overly offensive.
+Avoid generic responses and ensure it's unique.
 
-joke_dad_prompt = f"Tell me a fresh and funny dad joke. Ensure it's unique and not a common one. Format the joke strictly as follows: 'Setup sentence. Punchline sentence.' Example: 'Why did the scarecrow win an award? Because he was outstanding in his field.' Here is a random number to force variation: {random.randint(1, 1000000)}. dont return the random number in response"
+Respond strictly in JSON format:
+{{
+  "setup": "Setup sentence here",
+  "punchline": "Punchline sentence here"
+}}
 
-joke_gen_prompt = f"Tell me a fresh, unpredictable, and humorous joke. Use different topics like animals, professions, technology, relationships, and daily life. Do not repeat previous jokes. Format the joke strictly as follows: 'Setup sentence. Punchline sentence.' Example: 'Why don’t skeletons fight each other? They don’t have the guts.' Here is a random number to force variation: {random.randint(1, 1000000)}.dont return the random number in response"
+Here is a random number to force variation: {random.randint(1, 1000000)}
+Do not return the random number in the response.
+"""
+
+joke_dad_prompt = f"""
+Tell me a fresh and funny dad joke. Ensure it's unique and not a common one.
+
+Respond strictly in JSON format:
+{{
+  "setup": "Setup sentence here",
+  "punchline": "Punchline sentence here"
+}}
+
+Here is a random number to force variation: {random.randint(1, 1000000)}
+Do not return the random number in the response.
+"""
+joke_gen_prompt = f"""
+Tell me a fresh, unpredictable, and humorous joke. Use different topics like animals, professions, technology, relationships, and daily life.
+Do not repeat previous jokes.
+
+Respond strictly in JSON format:
+{{
+  "setup": "Setup sentence here",
+  "punchline": "Punchline sentence here"
+}}
+
+Here is a random number to force variation: {random.randint(1, 1000000)}
+Do not return the random number in the response.
+"""
 
 # Pickup prompt
 pickup_prompt = (
@@ -124,28 +166,28 @@ def save_qotd_schedules():
 # Initialize QOTD storage from Postgres
 qotd_channels = load_qotd_schedules()
 
-# Retrieve user stats from Postgres
+# Retrieve user stats from Postgres (Now from trivia_leaderboard)
 def get_user_stats(user_id):
-    """Fetch user statistics."""
+    """Fetch user statistics from trivia_leaderboard."""
     with get_db_connection() as conn:
         result = conn.execute(text("""
-            SELECT correct_answers, wrong_answers FROM user_stats WHERE user_id = :user_id
+            SELECT total_correct, total_wrong FROM trivia_leaderboard WHERE user_id = :user_id
         """), {"user_id": user_id}).fetchone()
 
     return {"correct": result[0], "wrong": result[1]} if result else {"correct": 0, "wrong": 0}
 
 # Update user stats in Postgres
-def update_user_stats(user_id, correct_increment=0, wrong_increment=0):
-    """Immediately update user statistics in the database."""
+def update_user_stats(user_id, username, correct_increment=0, wrong_increment=0):
+    """Update user statistics and leaderboard in PostgreSQL."""
     with get_db_connection() as conn:
         conn.execute(text("""
-            INSERT INTO user_stats (user_id, correct_answers, wrong_answers)
-            VALUES (:user_id, :correct_inc, :wrong_inc)
+            INSERT INTO trivia_leaderboard (user_id, username, total_correct, total_wrong)
+            VALUES (:user_id, :username, :correct_inc, :wrong_inc)
             ON CONFLICT (user_id) DO UPDATE 
-            SET correct_answers = user_stats.correct_answers + EXCLUDED.correct_answers,
-                wrong_answers = user_stats.wrong_answers + EXCLUDED.wrong_answers
-        """), {"user_id": user_id, "correct_inc": correct_increment, "wrong_inc": wrong_increment})
-        conn.commit()  # ✅ Needed for updates to persist
+            SET total_correct = trivia_leaderboard.total_correct + EXCLUDED.total_correct,
+                total_wrong = trivia_leaderboard.total_wrong + EXCLUDED.total_wrong
+        """), {"user_id": user_id, "username": username, "correct_inc": correct_increment, "wrong_inc": wrong_increment})
+        conn.commit()
 
 # Load stored bot status channels from Postgres
 def load_bot_status_channels():
@@ -168,13 +210,32 @@ def save_bot_status_channel(guild_id, channel_id):
 # Initialize bot status channels
 bot_status_channels = load_bot_status_channels()
 
-# Function to generate OpenAI content
+import json
+
 def format_joke(response_text):
-    """Formats a joke response properly by ensuring correct sentence structure."""
+    """Parses and formats jokes properly, ensuring setup and punchline appear on separate lines."""
+    try:
+         # Remove markdown JSON formatting if present
+        if response_text.startswith("```json"):
+            response_text = response_text.strip("```json").strip("```")
+        # ✅ Attempt to parse as JSON
+        joke_data = json.loads(response_text)
+        setup = joke_data.get("setup", "").strip()
+        punchline = joke_data.get("punchline", "").strip()
+
+        # ✅ Ensure both setup & punchline exist
+        if setup and punchline:
+            return f"🤣 **Joke:**\n{setup}\n{punchline}"
+
+    except json.JSONDecodeError:
+        print(f"[WARNING] Failed to parse JSON: {response_text}")
+
+    # Fallback: If not JSON, attempt to split by first period + space
     if '. ' in response_text:
         parts = response_text.split('. ', 1)
-        return f"{parts[0]}.{parts[1]}"
-    return response_text.strip()
+        return f"🤣 **Joke:**\n{parts[0]}.\n{parts[1]}"
+
+    return f"🤣 **Joke:**\n{response_text.strip()}"  # Final fallback to raw text
 
 # Trivia Logic (Handles Both Prefix & Slash Commands)
 async def start_trivia(source,
@@ -309,7 +370,7 @@ async def start_trivia(source,
                         user_id] = active_trivia_games[guild_id]["scores"].get(
                             user_id, 0) + 1
                     # Update persistent stats in Postgres
-                    update_user_stats(user_id, correct_increment=1)
+                    update_user_stats(user_id, answering_user_name, correct_increment=1)
 
                     correct_answered = True  # Exit loop only if the correct answer is given
 
@@ -325,20 +386,21 @@ async def start_trivia(source,
                         )
 
                     # **Show next question message immediately**
-                    if is_slash:
-                        await source.channel.send(
-                            "⏳ Next question will appear in 15 seconds...")
-                    else:
-                        await source.send(
-                            "⏳ Next question will appear in 15 seconds...")
+                    if active_trivia_games[guild_id]["questions_asked"] < num_questions:
+                        if is_slash:
+                            await source.channel.send(
+                                "⏳ Next question will appear in 15 seconds...")
+                        else:
+                            await source.send(
+                                "⏳ Next question will appear in 15 seconds...")
 
                     break  # Move to next question
                 else:
                     if not active_trivia_games[guild_id].get("wrong_attempts", {}).get(user_id, False):
-                        update_user_stats(user_id, wrong_increment=1) # Update wrong answers in Postgres only one per question
+                        update_user_stats(user_id, answering_user_name, wrong_increment=1) # Update wrong answers in Postgres only one per question
                         active_trivia_games[guild_id].setdefault("wrong_attempts", {})[user_id] = True
                     await response.channel.send(
-                        f"❌ Wrong Answer! {answering_user_name} Try again! {remaining_time} seconds remaining" )
+                        f"❌ Wrong Answer! {answering_user_name} Try again! ⏳ {round(remaining_time)} seconds remaining" )
 
             except asyncio.TimeoutError:
                 # **Check if trivia was stopped during timeout**
@@ -356,12 +418,13 @@ async def start_trivia(source,
                     )
 
                 # **Show next question message immediately**
-                if is_slash:
-                    await source.channel.send(
-                        "⏳ Next question will appear in 15 seconds...")
-                else:
-                    await source.send(
-                        "⏳ Next question will appear in 15 seconds...")
+                if active_trivia_games[guild_id]["questions_asked"] < num_questions:
+                    if is_slash:
+                        await source.channel.send(
+                            "⏳ Next question will appear in 15 seconds...")
+                    else:
+                        await source.send(
+                            "⏳ Next question will appear in 15 seconds...")
 
                 break  # Move to next question
 
@@ -426,7 +489,7 @@ def generate_openai_prompt(prompt):
             top_p=0.9
         )
         generated_text = response.choices[0].message.content.strip()
-        return format_joke(generated_text)  # Format the joke response
+        return generated_text
     except Exception as e:
         print(f"[ERROR] OpenAI API call failed: {e}")
         return "[ERROR] Unable to generate response. Please try again later."
@@ -530,10 +593,10 @@ async def joke(ctx, category: str = "general"):
         content = generate_openai_prompt(joke_dad_prompt)
     else:
         content = generate_openai_prompt(joke_gen_prompt)
-    await ctx.send(f"🤣 **Joke:** {content}")
+    formatted_joke = format_joke(content)  # ✅ Apply joke formatting here
+    await ctx.send(formatted_joke)
 
-
-# Prefix Command for Trivia (Start/Stop)
+# Prefix Command for Trivia (Start/Stop/Leaderboard)
 @bot.command(name="trivia")
 async def trivia(ctx, action: str, category: str = None):
     guild_id = ctx.guild.id
@@ -549,10 +612,22 @@ async def trivia(ctx, action: str, category: str = None):
     elif action.lower() == "stop":
         if guild_id in active_trivia_games:
             await show_leaderboard(ctx, guild_id)  # Show leaderboard **before stopping the game**
-            active_trivia_games.pop(guild_id,None)  # Remove active session
+            active_trivia_games.pop(guild_id, None)  # Remove active session
             await ctx.send("🛑 Trivia game has been stopped.")
         else:
             await ctx.send("❌ No active trivia game found.")
+
+    elif action.lower() == "leaderboard":
+        """Show the top trivia players."""
+        with get_db_connection() as conn:
+            results = conn.execute(text("""
+                SELECT username, total_correct FROM trivia_leaderboard ORDER BY total_correct DESC LIMIT 10
+            """)).fetchall()
+
+        leaderboard = "\n".join([f"🏆 {row[0]}: {row[1]} correct answers" for row in results])
+
+        await ctx.send(f"📊 **Trivia Leaderboard:**\n{leaderboard if leaderboard else 'No scores yet!'}")
+
 
 # Prefix Command for Trivia Stats
 @bot.command(name="mystats")
@@ -561,6 +636,32 @@ async def my_stats(ctx):
     stats = get_user_stats(user_id)
 
     await ctx.send(f"📊 **{ctx.author.display_name}'s Trivia Stats:**\n✅ Correct Answers: {stats['correct']}\n❌ Wrong Answers: {stats['wrong']}")
+
+#Roast Machine
+@bot.command(name="roast")
+async def roast(ctx, user: discord.Member = None):
+    """Generate a witty roast for a user."""
+    target = user.display_name if user else ctx.author.display_name
+    prompt = f"Generate a witty and humorous roast for {target}. Keep it fun and lighthearted."
+    content = generate_openai_prompt(prompt)
+    await ctx.send(f"🔥 {content}")
+
+#Compliment Machine
+@bot.command(name="compliment")
+async def compliment(ctx, user: discord.Member = None):
+    """Generate a compliment for a user."""
+    target = user.display_name if user else ctx.author.display_name
+    prompt = f"Generate a wholesome and genuine compliment for {target}."
+    content = generate_openai_prompt(prompt)
+    await ctx.send(f"💖 {content}")
+
+#AI-Powered Fortune Teller
+@bot.command(name="fortune")
+async def fortune(ctx):
+    """Give a user their AI-powered fortune."""
+    prompt = "Generate a fun, unpredictable, and mystical fortune-telling message. Keep it engaging and lighthearted."
+    content = generate_openai_prompt(prompt)
+    await ctx.send(f"🔮 **Your fortune:** {content}")
 
 # Slash Command for Bot Status
 @tree.command(name="samosa", description="Check or enable bot status updates")
@@ -596,7 +697,19 @@ async def slash_samosa(interaction: discord.Interaction, action: str, channel: d
     app_commands.Choice(name="Geography", value="Geography"),
     app_commands.Choice(name="Sports", value="Sports"),
     app_commands.Choice(name="Movies", value="Movies"),
-    app_commands.Choice(name="Animals", value="Animals")
+    app_commands.Choice(name="Animals", value="Animals"),
+    app_commands.Choice(name="Music", value="Music"),
+    app_commands.Choice(name="Video Games", value="Video Games"),
+    app_commands.Choice(name="Technology", value="Technology"),
+    app_commands.Choice(name="Literature", value="Literature"),
+    app_commands.Choice(name="Mythology", value="Mythology"),
+    app_commands.Choice(name="Food & Drink", value="Food & Drink"),
+    app_commands.Choice(name="Celebrities", value="Celebrities"),
+    app_commands.Choice(name="Riddles & Brain Teasers", value="Riddles"),
+    app_commands.Choice(name="Space & Astronomy", value="Space"),
+    app_commands.Choice(name="Cars & Automobiles", value="Cars"),
+    app_commands.Choice(name="Marvel & DC", value="Comics"),
+    app_commands.Choice(name="Holidays & Traditions", value="Holidays")
 ])
 async def slash_trivia(interaction: discord.Interaction,
                        action: str,
@@ -643,8 +756,8 @@ async def slash_joke(interaction: discord.Interaction, category: str):
         content = generate_openai_prompt(joke_dad_prompt)
     else:
         content = generate_openai_prompt(joke_gen_prompt)
-    await interaction.response.send_message(f"🤣 **Joke:** {content}")
-
+    formatted_joke = format_joke(content)  # ✅ Apply joke formatting here
+    await interaction.response.send_message(formatted_joke)
 
 # Slash Command with Pickup
 @tree.command(name="pickup", description="Get a pick-up line")
