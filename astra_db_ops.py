@@ -185,11 +185,18 @@ def load_bot_status_channels():
 
 # Get trivia leaderboard from Astra DB
 def get_trivia_leaderboard():
-    """Show the top trivia players from AstraDB."""
+    """Show the top trivia players from AstraDB, including total wrong answers."""
     try:
         collection = get_trivia_leaderboard_collection()
-        results = collection.find(sort={"total_correct": -1}, limit=10) # sort by total_correct descending and limit to 10.
-        return [{"username": doc["username"], "total_correct": doc["total_correct"]} for doc in results]
+        results = collection.find(sort={"total_correct": -1}, limit=10)  # Sort by total_correct descending and limit to 10.
+        return [
+            {
+                "username": doc["username"],
+                "total_correct": doc["total_correct"],
+                "total_wrong": doc.get("total_wrong", 0),  # Use get() to handle missing total_wrong
+            }
+            for doc in results
+        ]
     except Exception as e:
         print(f"[ERROR] Failed to retrieve trivia leaderboard: {e}")
         return []
