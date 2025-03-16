@@ -4,3 +4,4 @@ python-dotenv
 flask
 sqlalchemy
 psycopg2
+astrapy

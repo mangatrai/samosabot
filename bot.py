@@ -8,67 +8,19 @@ from discord import app_commands
 from discord.ui import Select, View
 from dotenv import load_dotenv
 import json
-from sqlalchemy import URL,create_engine, text
 import time
+
+import astra_db_ops
 
 # Load environment variables
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PREFIX = '!'
-
-def build_postgres_url():
-    connection_string = URL.create(
-    'postgresql',
-    username=os.getenv("DATABASE_USER"),
-    password=os.getenv("DATABASE_PASSWORD"),
-    host=os.getenv("DATABASE_HOST"),
-    database=os.getenv("DATABASE_NAME"),
-    )
-    return connection_string
-
-# Function to get a database connection
-def get_db_connection():
-    # Create SQLAlchemy engine
-    engine = create_engine(build_postgres_url(), pool_pre_ping=True)
-    return engine.connect()
-
-# Function to initialize database tables
-def initialize_database():
-    """Ensures all required tables exist in the PostgreSQL database."""
-    try:
-        with get_db_connection() as conn:
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS qotd_channels (
-                    guild_id BIGINT PRIMARY KEY,
-                    channel_id BIGINT NOT NULL
-                )
-            """))
-
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS bot_status_channels (
-                    guild_id BIGINT PRIMARY KEY,
-                    channel_id BIGINT NOT NULL
-                )
-            """))
-
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS trivia_leaderboard (
-                    user_id BIGINT PRIMARY KEY,
-                    username TEXT NOT NULL,
-                    total_correct INT DEFAULT 0,
-                    total_wrong INT DEFAULT 0
-                )
-            """))
-
-            conn.commit()  # ✅ Ensure changes are committed
-            print("✅ Tables created successfully!")
-    
-    except Exception as e:
-        print(f"❌ Error creating tables: {e}")  # Print the actual error
-
-# ✅ Initialize database tables before bot starts
-initialize_database()
+# Load environment variables for AstraDB
+ASTRA_API_ENDPOINT = os.getenv("ASTRA_API_ENDPOINT")  # AstraDB API endpoint
+ASTRA_NAMESPACE = os.getenv("ASTRA_NAMESPACE")  # Your namespace (like a database)
+ASTRA_API_TOKEN = os.getenv("ASTRA_API_TOKEN")  # API authentication token
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -144,68 +96,39 @@ pickup_prompt = (
     f"Example: 'Are you a magician? Because whenever I look at you, everyone else disappears.' "
 )
 
-# Load scheduled QOTD channels from Postgres
+# Load scheduled QOTD channels from AstraDB
 def load_qotd_schedules():
-    """Load scheduled QOTD channels from PostgreSQL."""
-    with get_db_connection() as conn:
-        result = conn.execute(text("SELECT guild_id, channel_id FROM qotd_channels")).fetchall()
-        return {row[0]: row[1] for row in result} if result else {}  # ✅ Ensure empty dict
+    """Load scheduled QOTD channels from AstraDB."""
+    return astra_db_ops.load_qotd_schedules()
 
-# Save scheduled QOTD channels to Postgres
+# Save scheduled QOTD channels
 def save_qotd_schedules():
-    """Save QOTD channels in the database."""
-    with get_db_connection() as conn:
-        for guild_id, channel_id in qotd_channels.items():
-            conn.execute(text("""
-                INSERT INTO qotd_channels (guild_id, channel_id)
-                VALUES (:guild_id, :channel_id)
-                ON CONFLICT (guild_id) DO UPDATE SET channel_id = EXCLUDED.channel_id
-            """), {"guild_id": guild_id, "channel_id": channel_id})
-        conn.commit()  # ✅ Required since multiple writes happen inside a loop
+    """Save QOTD channels in AstraDB."""
+    for guild_id, channel_id in qotd_channels.items():
+        astra_db_ops.save_qotd_schedules({"guild_id": guild_id, "channel_id": channel_id})
 
-# Initialize QOTD storage from Postgres
+# Initialize QOTD storage
 qotd_channels = load_qotd_schedules()
 
-# Retrieve user stats from Postgres (Now from trivia_leaderboard)
+# Retrieve user stats from AstraDB
 def get_user_stats(user_id):
-    """Fetch user statistics from trivia_leaderboard."""
-    with get_db_connection() as conn:
-        result = conn.execute(text("""
-            SELECT total_correct, total_wrong FROM trivia_leaderboard WHERE user_id = :user_id
-        """), {"user_id": user_id}).fetchone()
+    """Fetch user statistics from trivia_leaderboard in AstraDB."""
+    return astra_db_ops.get_user_stats(user_id)
 
-    return {"correct": result[0], "wrong": result[1]} if result else {"correct": 0, "wrong": 0}
-
-# Update user stats in Postgres
+# Update user stats in AstraDB
 def update_user_stats(user_id, username, correct_increment=0, wrong_increment=0):
-    """Update user statistics and leaderboard in PostgreSQL."""
-    with get_db_connection() as conn:
-        conn.execute(text("""
-            INSERT INTO trivia_leaderboard (user_id, username, total_correct, total_wrong)
-            VALUES (:user_id, :username, :correct_inc, :wrong_inc)
-            ON CONFLICT (user_id) DO UPDATE 
-            SET total_correct = trivia_leaderboard.total_correct + EXCLUDED.total_correct,
-                total_wrong = trivia_leaderboard.total_wrong + EXCLUDED.total_wrong
-        """), {"user_id": user_id, "username": username, "correct_inc": correct_increment, "wrong_inc": wrong_increment})
-        conn.commit()
+    """Update user statistics and leaderboard in AstraDB."""
+    astra_db_ops.update_user_stats(user_id, username, correct_increment, wrong_increment)
 
-# Load stored bot status channels from Postgres
+# Load stored bot status channels from AstraDB
 def load_bot_status_channels():
-    """Load bot status channels from PostgreSQL."""
-    with get_db_connection() as conn:
-        result = conn.execute(text("SELECT guild_id, channel_id FROM bot_status_channels"))
-        return {row[0]: row[1] for row in result.fetchall()}  # ✅ Corrected for SQLAlchemy
+    """Load bot status channels from AstraDB."""
+    return astra_db_ops.load_bot_status_channels()
 
-# Save bot status channel to Postgres
+# Save bot status channel to AstraDB
 def save_bot_status_channel(guild_id, channel_id):
-    """Save bot status channel in the database."""
-    with get_db_connection() as conn:
-        conn.execute(text("""
-            INSERT INTO bot_status_channels (guild_id, channel_id)
-            VALUES (:guild_id, :channel_id)
-            ON CONFLICT (guild_id) DO UPDATE SET channel_id = EXCLUDED.channel_id
-        """), {"guild_id": guild_id, "channel_id": channel_id})
-        conn.commit()  # ✅ Ensures persistence
+    """Save bot status channel in AstraDB."""
+    astra_db_ops.save_bot_status_channel(guild_id, channel_id)
 
 # Initialize bot status channels
 bot_status_channels = load_bot_status_channels()
@@ -238,23 +161,15 @@ def format_joke(response_text):
     return f"🤣 **Joke:**\n{response_text.strip()}"  # Final fallback to raw text
 
 # Trivia Logic (Handles Both Prefix & Slash Commands)
-async def start_trivia(source,
-                       category: str = "general",
-                       num_questions: int = 10,
-                       is_slash: bool = False):
-    guild_id = source.guild.id if isinstance(
-        source, commands.Context) else source.guild_id
+async def start_trivia(source, category: str = "general", num_questions: int = 10, is_slash: bool = False):
+    guild_id = source.guild.id if isinstance(source, commands.Context) else source.guild_id
     user_name = source.user.display_name if is_slash else source.author.display_name  # Get the user's name
 
     if guild_id in active_trivia_games:
         if is_slash:
-            await source.response.send_message(
-                "❌ A trivia game is already running in this server. Use `/trivia stop` to end it first.",
-                ephemeral=True)
+            await source.response.send_message("❌ A trivia game is already running in this server. Use `/trivia stop` to end it first.",ephemeral=True)
         else:
-            await source.send(
-                "❌ A trivia game is already running in this server. Use `!trivia stop` to end it first."
-            )
+            await source.send("❌ A trivia game is already running in this server. Use `!trivia stop` to end it first.")
         return
 
     active_trivia_games[guild_id] = {
@@ -262,9 +177,6 @@ async def start_trivia(source,
         "max_questions": num_questions,
         "scores": {}
     }
-
-    #if is_slash:
-    #    await source.response.defer()  # Acknowledge interaction before sending multiple messages
 
     # ✅ **Acknowledge that the game has started**
     if is_slash:
@@ -511,17 +423,15 @@ async def scheduled_qotd():
 @tasks.loop(hours=24)
 async def bot_status_task():
     """Send periodic bot status updates."""
-    with get_db_connection() as conn:
-        bot_status_channels = conn.execute(text("SELECT guild_id, channel_id FROM bot_status_channels")).fetchall()
-    
-    for guild_id, channel_id in bot_status_channels:
+    bot_status_channels = astra_db_ops.load_bot_status_channels()  # Load from AstraDB
+
+    for guild_id, channel_id in bot_status_channels.items():
         channel = bot.get_channel(int(channel_id))
         if channel:
             await channel.send("✅ **SamosaBot is up and running!** 🔥")
         else:
             print(f"[WARNING] Could not find channel {channel_id} for guild {guild_id}. Removing entry.")
-            with get_db_connection() as conn:
-                conn.execute(text("DELETE FROM bot_status_channels WHERE guild_id = :guild_id"), {"guild_id": guild_id})
+            astra_db_ops.save_bot_status_channel(guild_id, None)  # Save None to remove entry in AstraDB
 
 # Prefix Command for Bot Status
 @bot.command(name="samosa")
@@ -619,15 +529,19 @@ async def trivia(ctx, action: str, category: str = None):
 
     elif action.lower() == "leaderboard":
         """Show the top trivia players."""
-        with get_db_connection() as conn:
-            results = conn.execute(text("""
-                SELECT username, total_correct FROM trivia_leaderboard ORDER BY total_correct DESC LIMIT 10
-            """)).fetchall()
+        leaderboard_data = astra_db_ops.get_trivia_leaderboard()
 
-        leaderboard = "\n".join([f"🏆 {row[0]}: {row[1]} correct answers" for row in results])
+        if leaderboard_data:
+            # Format leaderboard as a table
+            table_header = "Rank | User | Total Correct | Total Wrong"
+            table_rows = []
+            for rank, entry in enumerate(leaderboard_data, start=1):
+                table_rows.append(f"{rank} | {entry['username']} | {entry['total_correct']} | {entry.get('total_wrong', 0)}") #get method added to handle missing total_wrong
 
-        await ctx.send(f"📊 **Trivia Leaderboard:**\n{leaderboard if leaderboard else 'No scores yet!'}")
-
+            leaderboard_table = "\n".join([table_header] + table_rows)
+            await ctx.send(f"📊 **Trivia Leaderboard:**\n```{leaderboard_table}```") #enclosed in triple backticks for monospace formatting
+        else:
+            await ctx.send("📊 **Trivia Leaderboard:**\nNo scores yet!")
 
 # Prefix Command for Trivia Stats
 @bot.command(name="mystats")
