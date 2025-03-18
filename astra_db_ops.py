@@ -3,6 +3,7 @@ from astrapy.constants import VectorMetric
 import os
 from dotenv import load_dotenv
 import logging
+import datetime
 
 # Load environment variables
 load_dotenv()
@@ -60,6 +61,22 @@ def create_trivia_leaderboard_collection():
     except Exception as e:
         logging.error(f"Error creating trivia_leaderboard collection: {e}")
 
+def create_user_requests_collection():
+    """Creates the user_requests collection."""
+    try:
+        get_db_connection().create_collection("user_requests")
+        logging.debug("user_requests collection created successfully.")
+    except Exception as e:
+        logging.error(f"Error creating user_requests collection: {e}")
+
+def create_daily_counters_collection():
+    """Creates the daily_counters collection."""
+    try:
+        get_db_connection().create_collection("daily_counters")
+        logging.debug("daily_counters collection created successfully.")
+    except Exception as e:
+        logging.error(f"Error creating daily_counters collection: {e}")
+
 # Function to get qotd channels collection
 def get_qotd_channels_collection():
     database = get_db_connection()
@@ -97,6 +114,31 @@ def get_trivia_leaderboard_collection():
         return collection
     except Exception as e:
         logging.error(f"[ERROR] Failed to retrieve trivia_leaderboard collection: {e}")
+        return None
+
+# Function to get user request collection
+def get_user_requests_collection():
+    database = get_db_connection()
+    if database is None:
+        return None
+    try:
+        collection = database.get_collection("user_requests")
+        logging.debug(f"Retrieved user_requests collection: {collection.info().name}")
+        return collection
+    except Exception as e:
+        logging.error(f"[ERROR] Failed to retrieve user_requests collection: {e}")
+        return None
+
+def get_daily_counters_collection():
+    database = get_db_connection()
+    if database is None:
+        return None
+    try:
+        collection = database.get_collection("daily_counters")
+        logging.debug(f"Retrieved daily_counters collection: {collection.info().name}")
+        return collection
+    except Exception as e:
+        logging.error(f"[ERROR] Failed to retrieve daily_counters collection: {e}")
         return None
 
 #Function to load qotd schedules
@@ -247,3 +289,54 @@ def clean_collection_data(collectionName):
 
     except Exception as e:
         logging.error(f"Error cleaning trivia leaderboard: {e}")
+
+# New functions for user requests and daily counters
+def insert_user_request(user_id, question, response):
+    """Insert a user request into the user_requests collection."""
+    try:
+        collection = get_user_requests_collection()
+        document = {
+            "user_id": str(user_id),
+            "question": question,
+            "response": response,
+            "timestamp": datetime.datetime.utcnow().isoformat()
+        }
+        collection.insert_one(document)
+        logging.debug(f"User request inserted: User ID {user_id}")
+    except Exception as e:
+        logging.error(f"Error inserting user request: {e}")
+
+def get_user_requests(user_id):
+    """Retrieve user requests from the user_requests collection."""
+    try:
+        collection = get_user_requests_collection()
+        results = collection.find({"user_id": str(user_id)})
+        return list(results)
+    except Exception as e:
+        logging.error(f"Error retrieving user requests: {e}")
+        return []
+
+def get_daily_request_count(user_id):
+    """Retrieve the daily request count for a user."""
+    today = datetime.date.today().isoformat()
+    try:
+        collection = get_daily_counters_collection()
+        result = collection.find_one({"user_id": str(user_id), "date": today})
+        return result.get("count", 0) if result else 0
+    except Exception as e:
+        logging.error(f"Error retrieving daily request count: {e}")
+        return 0
+
+def increment_daily_request_count(user_id):
+    """Increment the daily request count for a user."""
+    today = datetime.date.today().isoformat()
+    try:
+        collection = get_daily_counters_collection()
+        collection.find_one_and_update(
+            {"user_id": str(user_id), "date": today},
+            {"$inc": {"count": 1}},
+            upsert=True,
+        )
+        logging.debug(f"Daily request count incremented for User ID {user_id}")
+    except Exception as e:
+        logging.error(f"Error incrementing daily request count: {e}")
