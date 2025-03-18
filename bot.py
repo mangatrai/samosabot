@@ -8,8 +8,8 @@ import logging
 
 import astra_db_ops
 import openai_utils
-import trivia_game
 import prompts
+from version import __version__
 
 # Load environment variables
 load_dotenv()
@@ -104,7 +104,7 @@ def format_joke(response_text):
             return f"🤣 **Joke:**\n{setup}\n{punchline}"
 
     except json.JSONDecodeError:
-        logging.warn(f"[WARNING] Failed to parse JSON: {response_text}")
+        logging.warning(f"[WARNING] Failed to parse JSON: {response_text}")
 
     # Fallback: If not JSON, attempt to split by first period + space
     if '. ' in response_text:
@@ -263,6 +263,7 @@ async def slash_pickup(interaction: discord.Interaction):
 @bot.event
 async def on_ready():
     await bot.wait_until_ready()  # Ensure bot is fully ready before proceeding
+    logging.info(f"🤖 SamosaBot Version: {__version__}")
     logging.info(f'Logged in as {bot.user}')
 
     await bot.load_extension("joke_cog")
