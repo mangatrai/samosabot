@@ -46,11 +46,18 @@ Do not return the random number in the response.
 
 # Pickup prompt
 pickup_prompt = (
-    f"Generate a highly flirty, witty, and playful pick-up line. "
-    f"The line should be humorous but never offensive, misogynistic, or inappropriate. "
-    f"Ensure every response is **completely unique**—avoid using common or overused themes. "
-    f"Mix up different styles, including wordplay, pop culture references, unexpected twists, and creative metaphors. "
-    f"Each pick-up line should sound **fresh and original**, not a slight variation of previous ones. "
+    f"Generate a bold, irresistibly flirty, and exceptionally witty pickup line. "
+    f"The line should be **fun, cheeky, and playful** while avoiding anything offensive or inappropriate. "
+    f"Think of lines that would make someone **smirk, blush, or laugh out loud.** "
+    f"Ensure each response is **completely original**—avoid generic or predictable themes like WiFi, computers, and common clichés. "
+    f"Use unexpected twists, pop culture nods, double entendres, clever wordplay, and **creative metaphors**. "
+    f"Vary the topics—think of romance, adventure, luxury, art, literature, the supernatural, music, and even historical figures. "
+    f"Make each line sound **fresh and unique**, ensuring no slight variation of previous ones. "
     f"Here is a random number to force variation: {random.randint(1, 1000000)} (do not return this number in the response). "
-    f"Example: 'Are you a magician? Because whenever I look at you, everyone else disappears.' "
+    f"Examples:\n"
+    f"- 'Are you French? Because Eiffel for you.'\n"
+    f"- 'If kisses were snowflakes, I'd send you a blizzard.'\n"
+    f"- 'Are you made of copper and tellurium? Because you’re Cu-Te.'\n"
+    f"- 'I was blinded by your beauty… but I’m fine now. Hey, what’s your name again?'\n"
+    f"- 'Are you an unfinished novel? Because I just can’t put you down.' "
 )
