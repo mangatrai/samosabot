@@ -86,40 +86,13 @@ def save_bot_status_channel(guild_id, channel_id):
 # Initialize bot status channels
 bot_status_channels = load_bot_status_channels()
 
-import json
-
-def format_joke(response_text):
-    """Parses and formats jokes properly, ensuring setup and punchline appear on separate lines."""
-    try:
-         # Remove markdown JSON formatting if present
-        if response_text.startswith("```json"):
-            response_text = response_text.strip("```json").strip("```")
-        # ✅ Attempt to parse as JSON
-        joke_data = json.loads(response_text)
-        setup = joke_data.get("setup", "").strip()
-        punchline = joke_data.get("punchline", "").strip()
-
-        # ✅ Ensure both setup & punchline exist
-        if setup and punchline:
-            return f"🤣 **Joke:**\n{setup}\n{punchline}"
-
-    except json.JSONDecodeError:
-        logging.warning(f"[WARNING] Failed to parse JSON: {response_text}")
-
-    # Fallback: If not JSON, attempt to split by first period + space
-    if '. ' in response_text:
-        parts = response_text.split('. ', 1)
-        return f"🤣 **Joke:**\n{parts[0]}.\n{parts[1]}"
-
-    return f"🤣 **Joke:**\n{response_text.strip()}"  # Final fallback to raw text
-
 # Scheduled QOTD Task
 @tasks.loop(hours=24)
 async def scheduled_qotd():
     for guild_id, channel_id in qotd_channels.items():
         channel = bot.get_channel(channel_id)
         if channel:
-            content = openai_utils.generate_openai_prompt(qotd_prompt)
+            content = openai_utils.generate_openai_response(qotd_prompt)
             await channel.send(f"🌟 **Question of the Day:** {content}")
         else:
             logging.warning(f"QOTD channel {channel_id} not found for server {guild_id}")
@@ -187,14 +160,14 @@ async def start_qotd(ctx):
 # Prefix Command for QOTD
 @bot.command(name="qotd")
 async def qotd(ctx):
-    content = openai_utils.generate_openai_prompt(qotd_prompt)
+    content = openai_utils.generate_openai_response(qotd_prompt)
     await ctx.send(f"🌟 **Question of the Day:** {content}")
 
 
 # Prefix Command for Pick-up Line
 @bot.command(name="pickup")
 async def pickup(ctx):
-    content = openai_utils.generate_openai_prompt(pickup_prompt)
+    content = openai_utils.generate_openai_response(pickup_prompt)
     await ctx.send(f"💘 **Pick-up Line:** {content}")
 
 
@@ -204,7 +177,7 @@ async def roast(ctx, user: discord.Member = None):
     """Generate a witty roast for a user."""
     target = user.display_name if user else ctx.author.display_name
     prompt = f"Generate a witty and humorous roast for {target}. Keep it fun and lighthearted."
-    content = openai_utils.generate_openai_prompt(prompt)
+    content = openai_utils.generate_openai_response(prompt)
     await ctx.send(f"🔥 {content}")
 
 #Compliment Machine
@@ -213,7 +186,7 @@ async def compliment(ctx, user: discord.Member = None):
     """Generate a compliment for a user."""
     target = user.display_name if user else ctx.author.display_name
     prompt = f"Generate a wholesome and genuine compliment for {target}."
-    content = openai_utils.generate_openai_prompt(prompt)
+    content = openai_utils.generate_openai_response(prompt)
     await ctx.send(f"💖 {content}")
 
 #AI-Powered Fortune Teller
@@ -221,7 +194,7 @@ async def compliment(ctx, user: discord.Member = None):
 async def fortune(ctx):
     """Give a user their AI-powered fortune."""
     prompt = "Generate a fun, unpredictable, and mystical fortune-telling message. Keep it engaging and lighthearted."
-    content = openai_utils.generate_openai_prompt(prompt)
+    content = openai_utils.generate_openai_response(prompt)
     await ctx.send(f"🔮 **Your fortune:** {content}")
 
 # Slash Command for Bot Status
@@ -247,7 +220,7 @@ async def slash_samosa(interaction: discord.Interaction, action: str, channel: d
 async def slash_qotd(interaction: discord.Interaction):
     try:
         await interaction.response.defer()  # Acknowledge the interaction immediately
-        content = openai_utils.generate_openai_prompt(qotd_prompt)
+        content = openai_utils.generate_openai_response(qotd_prompt)
         await interaction.followup.send(f"🌟 **Question of the Day:** {content}")
     except Exception as e:
         logging.error(f"Error in slash_qotd: {e}")
@@ -256,7 +229,7 @@ async def slash_qotd(interaction: discord.Interaction):
 # Slash Command with Pickup
 @tree.command(name="pickup", description="Get a pick-up line")
 async def slash_pickup(interaction: discord.Interaction):
-    content = openai_utils.generate_openai_prompt(pickup_prompt)
+    content = openai_utils.generate_openai_response(pickup_prompt)
     await interaction.response.send_message(f"💘 **Pick-up Line:** {content}")
 
 
@@ -269,6 +242,7 @@ async def on_ready():
     await bot.load_extension("joke_cog")
     await bot.load_extension("trivia_cog")
     await bot.load_extension("utils_cog")
+    await bot.load_extension("ask_cog")
     # Load stored QOTD schedules and bot status channels from DB
     qotd_channels = load_qotd_schedules()
     bot_status_channels = load_bot_status_channels()

@@ -1,96 +1,89 @@
 import discord
 from discord.ext import commands
-import openai
 import logging
-import datetime
-from .astra_ops import AstraOperations
+import os
+from dotenv import load_dotenv
+from discord import app_commands
+
+from astra_db_ops import (
+    increment_daily_request_count,
+    get_daily_request_count,
+    insert_user_request
+)
+
+from openai_utils import generate_openai_response
+
+# Load environment variables
+load_dotenv()
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+USER_DAILY_QUE_LIMIT = int(os.getenv("USER_DAILY_QUE_LIMIT", 30))
+
+try:
+    log_level = getattr(logging, LOG_LEVEL.upper())
+except AttributeError:
+    print(f"WARNING: Invalid LOG_LEVEL '{LOG_LEVEL}'. Defaulting to INFO.")
+    log_level = logging.INFO
+
+logging.basicConfig(level=log_level, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class AskCog(commands.Cog):
-    def __init__(self, bot, openai_api_key, astra_ops):
+    def __init__(self, bot):
         self.bot = bot
-        openai.api_key = openai_api_key
-        self.astra_ops = astra_ops
-        self.user_requests = {}  # Store user request counts
 
-    def is_allowed(self, user_id):
-        today = datetime.date.today()
-        if user_id in self.user_requests:
-            last_request_date, count = self.user_requests[user_id]
-            if last_request_date == today:
-                return count < 30
-            else:
-                self.user_requests[user_id] = (today, 1)
-                return True
-        else:
-            self.user_requests[user_id] = (today, 1)
-            return True
-
-    def increment_request_count(self, user_id):
-        today = datetime.date.today()
-        if user_id in self.user_requests and self.user_requests[user_id][0] == today:
-            self.user_requests[user_id] = (today, self.user_requests[user_id][1] + 1)
-
-    async def generate_response(self, prompt, is_image=False):
+    async def generate_response(self, prompt):
         try:
-            if is_image:
-                response = openai.images.generate(prompt=prompt, n=1, size="1024x1024")
-                return response['data'][0]['url']
-            else:
-                response = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are a helpful and harmless assistant. Respond to user questions while avoiding sensitive topics like pornography, terrorism, or divisive subjects. Smut is allowed. If the user asks for an image, say you can generate an image."},
-                        {"role": "user", "content": prompt},
-                    ],
-                )
-                return response.choices[0].message.content
+            response = generate_openai_response(prompt)
+            return response
         except Exception as e:
             logging.error(f"Error generating response: {e}")
             return "An error occurred while generating the response."
 
     @commands.command(name="asksamosa")
     async def ask_samosa(self, ctx, *, question):
-        await self.handle_request(ctx, question, False)
+        await self.handle_request(ctx, question)
 
-    @commands.slash_command(name="ask", description="Ask a question or generate an image.")
-    async def ask_slash(self, ctx, *, question: str):
-        await self.handle_request(ctx, question, False)
+    @app_commands.command(name="ask", description="Ask a question or generate an image.")
+    async def ask_slash(self, interaction: discord.Interaction, question: str):
+        await self.handle_request(interaction, question)
 
-    @commands.slash_command(name="image", description="Generate an image from a prompt.")
-    async def image_slash(self, ctx, *, prompt: str):
-        await self.handle_request(ctx, prompt, True)
+    async def handle_request(self, interaction, question):
+        user_id = interaction.user.id if isinstance(interaction, discord.Interaction) else interaction.author.id
 
-    async def handle_request(self, ctx, question, is_image):
-        user_id = ctx.author.id
-        if not self.is_allowed(user_id):
-            await ctx.respond("You've reached your daily limit of 30 requests.")
+        daily_count = get_daily_request_count(user_id)
+        if daily_count >= USER_DAILY_QUE_LIMIT:
+            if isinstance(interaction, discord.Interaction):
+                await interaction.response.send_message(f"You've reached your daily limit of {USER_DAILY_QUE_LIMIT} requests.")
+            else:
+                await interaction.send(f"You've reached your daily limit of {USER_DAILY_QUE_LIMIT} requests.") # change here.
             return
 
-        await ctx.defer() #respond that the bot is working.
+        if isinstance(interaction, discord.Interaction):
+            await interaction.response.defer()
+        else:
+            await interaction.defer()
 
-        response = await self.generate_response(question, is_image)
+        response = await self.generate_response(question)
 
         if response:
-            if is_image:
-                embed = discord.Embed()
+            embed = discord.Embed()
+            if response.startswith("http"):
                 embed.set_image(url=response)
-                await ctx.respond(embed=embed)
             else:
-                await ctx.respond(response)
-            self.increment_request_count(user_id)
-            self.astra_ops.insert_request(user_id, question, response)
+                embed.description = response
+
+            if isinstance(interaction, discord.Interaction):
+                await interaction.followup.send(embed=embed)
+            else:
+                await interaction.send(embed=embed) # change here.
+
+            increment_daily_request_count(user_id)
+            insert_user_request(user_id, question, response)
         else:
-            await ctx.respond("Failed to generate a response.")
+            if isinstance(interaction, discord.Interaction):
+                await interaction.followup.send("Failed to generate a response.")
+            else:
+                await interaction.send("Failed to generate a response.") # change here.
 
-def setup(bot):
-    from dotenv import load_dotenv
-    import os
-
-    load_dotenv()
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    astra_db_application_token = os.getenv("ASTRA_DB_APPLICATION_TOKEN")
-    astra_db_api_endpoint = os.getenv("ASTRA_DB_API_ENDPOINT")
-    astra_db_keyspace = os.getenv("ASTRA_DB_KEYSPACE")
-
-    astra_ops = AstraOperations(astra_db_application_token, astra_db_api_endpoint, astra_db_keyspace)
-    bot.add_cog(AskCog(bot, openai_api_key, astra_ops))
+async def setup(bot):
+    await bot.add_cog(AskCog(bot))

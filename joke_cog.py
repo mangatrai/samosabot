@@ -30,11 +30,11 @@ class JokeCog(commands.Cog):
     @commands.command(name="joke")
     async def joke(self, ctx, category: str = "general"):
         if category == "insult":
-            content = openai_utils.generate_openai_prompt(prompts.joke_insult_prompt)
+            content = openai_utils.generate_openai_response(prompts.joke_insult_prompt)
         elif category == "dad":
-            content = openai_utils.generate_openai_prompt(prompts.joke_dad_prompt)
+            content = openai_utils.generate_openai_response(prompts.joke_dad_prompt)
         else:
-            content = openai_utils.generate_openai_prompt(prompts.joke_gen_prompt)
+            content = openai_utils.generate_openai_response(prompts.joke_gen_prompt)
         formatted_joke = format_joke(content)
         await ctx.send(formatted_joke)
 
@@ -46,11 +46,11 @@ class JokeCog(commands.Cog):
     ])
     async def slash_joke(self, interaction: discord.Interaction, category: str):
         if category == "insult":
-            content = openai_utils.generate_openai_prompt(prompts.joke_insult_prompt)
+            content = openai_utils.generate_openai_response(prompts.joke_insult_prompt)
         elif category == "dad":
-            content = openai_utils.generate_openai_prompt(prompts.joke_dad_prompt)
+            content = openai_utils.generate_openai_response(prompts.joke_dad_prompt)
         else:
-            content = openai_utils.generate_openai_prompt(prompts.joke_gen_prompt)
+            content = openai_utils.generate_openai_response(prompts.joke_gen_prompt)
         formatted_joke = format_joke(content)
         await interaction.response.send_message(formatted_joke)
 

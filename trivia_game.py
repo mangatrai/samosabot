@@ -49,7 +49,7 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
     else:
         await source.send(f"🎉 {user_name} has started a {category} trivia game! First question in {TRIVIA_START_DELAY} seconds...")
     await asyncio.sleep(TRIVIA_START_DELAY)
-    content = openai_utils.generate_openai_prompt(
+    content = openai_utils.generate_openai_response(
         f"Generate {num_questions} unique and engaging trivia questions in the category of {category}. "
         f"The question must be fresh and not a duplicate of any previous trivia session. "
         f"Avoid generic or frequently used trivia questions—ensure variety by using diverse topics within the category. "
