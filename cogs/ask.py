@@ -99,7 +99,10 @@ class AskCog(commands.Cog):
             return
 
         if isinstance(interaction, discord.Interaction):
-            await interaction.response.defer()
+            try:
+                await interaction.response.defer()
+            except discord.errors.NotFound:
+                logging.warning("Interaction not found or already responded to.")
         else:
             await interaction.defer()
 
