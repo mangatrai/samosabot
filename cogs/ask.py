@@ -6,16 +6,11 @@ via both prefix commands and slash commands. It integrates with OpenAI's API to 
 of a user prompt and then generate an appropriate response—either text or image. Additionally, the module enforces
 a daily request limit per user and logs each query and its corresponding response to AstraDB for tracking and statistics.
 
-Features:
-  - Provides two commands: the traditional prefix command (!asksamosa) and a modern slash command (/ask).
-  - Utilizes the generate_openai_response function from openai_utils to perform intent checking and content generation.
-  - Enforces daily limits using functions from astra_db_ops (get_daily_request_count, increment_daily_request_count, insert_user_request).
-  - Sends responses as embedded messages in Discord, including image embedding if applicable.
-
-Usage:
-  Load this cog into your Discord bot to enable interactive question-answering features with built-in safety and logging.
+This updated version also preprocesses the user’s prompt to replace any user mentions (e.g. <@123456789>) with the
+corresponding display names. This works even if multiple users are mentioned in the prompt.
 """
 
+import re
 import discord
 from discord.ext import commands
 import logging
@@ -29,13 +24,36 @@ from utils.astra_db_ops import (
     insert_user_request
 )
 
-# Import the new generate_openai_response function
 from utils.openai_utils import generate_openai_response
 
 # Load environment variables
 load_dotenv()
-
 USER_DAILY_QUE_LIMIT = int(os.getenv("USER_DAILY_QUE_LIMIT", 30))
+
+def replace_mentions_with_username(prompt, ctx_or_interaction):
+    """
+    Replace all Discord user mention patterns in the prompt with the corresponding display names.
+
+    Args:
+        prompt (str): The original prompt string containing user mentions in the format <@UserID> or <@!UserID>.
+        ctx_or_interaction (commands.Context or discord.Interaction): The context from which to retrieve guild members.
+
+    Returns:
+        str: The prompt with all user mentions replaced by their display names. If a user is not found,
+             the original mention is left unchanged.
+    """
+    pattern = r"<@!?(\d+)>"
+
+    def replacer(match):
+        user_id = int(match.group(1))
+        # If guild context is available, get the member from the guild
+        if hasattr(ctx_or_interaction, "guild") and ctx_or_interaction.guild:
+            member = ctx_or_interaction.guild.get_member(user_id)
+        else:
+            member = ctx_or_interaction.bot.get_user(user_id)
+        return member.display_name if member else match.group(0)
+
+    return re.sub(pattern, replacer, prompt)
 
 class AskCog(commands.Cog):
     def __init__(self, bot):
@@ -58,10 +76,14 @@ class AskCog(commands.Cog):
 
     @commands.command(name="asksamosa")
     async def ask_samosa(self, ctx, *, question):
+        # Preprocess the question to replace any user mentions with display names.
+        question = replace_mentions_with_username(question, ctx)
         await self.handle_request(ctx, question)
 
     @app_commands.command(name="ask", description="Ask a question or generate an image.")
     async def ask_slash(self, interaction: discord.Interaction, question: str):
+        # Preprocess the question to replace any user mentions with display names.
+        question = replace_mentions_with_username(question, interaction)
         await self.handle_request(interaction, question)
 
     async def handle_request(self, interaction, question):

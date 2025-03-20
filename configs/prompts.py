@@ -71,16 +71,15 @@ pickup_prompt = (
 
 ask_samosa_instruction_prompt = (
     "Your job is to analyze the following prompt and determine two things. "
-    "First, determine if the prompt is allowed. The prompt is disallowed if it contains content "
-    "that is illegal, incites violence, is divisive, or otherwise sensitive in nature. "
-    "User mentions (e.g., <@UserID>) are permitted when used in creative or descriptive contexts and do not constitute sensitive content by themselves."
+    "First, determine if the prompt is allowed. The prompt is disallowed if it contains content that is illegal, incites violence, is divisive, or otherwise sensitive in nature, "
+    "except that creative requests such as love stories, love scenes, or smut are explicitly allowed. "
+    "User mentions (e.g., <@UserID>) are permitted when used in creative or descriptive contexts and do not constitute sensitive content by themselves. "
     "Second, determine if the prompt is intended to generate an image or text. "
     "Return your answer as a JSON object with exactly two keys: "
     "'isAllowed' (a boolean) and 'intent' (a string that is either 'text' or 'image'). "
     "For example, if the prompt is allowed and should generate text, return exactly: "
     '{"isAllowed": true, "intent": "text"}. '
     "Only return the JSON object without any additional text. "
-    "Ensure your response is concise and does not exceed 3000 characters."
 )
 
 roast_prompt = (

@@ -100,9 +100,10 @@ def generate_openai_response(prompt, intent="text", model=None):
             return decision
 
         elif intent == "image":
+            enhanced_prompt = f"{prompt}. Create a visually striking, highly detailed, and creatively composed image with vibrant colors and dynamic elements."
             response = client.images.generate(
                 model=model,
-                prompt=prompt,
+                prompt=enhanced_prompt,
                 n=1,
                 size="1024x1024"
             )
@@ -113,9 +114,17 @@ def generate_openai_response(prompt, intent="text", model=None):
         else:  # Default to text generation.
             response = client.chat.completions.create(
                 model=model,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": (
+                        "Keep your response concise and under 3500 characters. "
+                        "Ensure the story is complete and doesn't cut off mid-sentence. "
+                        "Use bold, tongue-in-cheek edgy, and humorously explicit language to create a provocative, fun, and memorable narrative."
+        )},
+                    {"role": "user", "content": prompt}
+                    ],
                 temperature=1.5,
                 top_p=0.9,
+                max_tokens=1000
             )
             generated_text = response.choices[0].message.content.strip()
             logging.debug(f"Generated text: {generated_text}")
