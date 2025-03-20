@@ -115,14 +115,22 @@ async def scheduled_qotd():
 async def bot_status_task():
     """Send periodic bot status updates."""
     bot_status_channels = astra_db_ops.load_bot_status_channels()  # Load from AstraDB
-
     for guild_id, channel_id in bot_status_channels.items():
-        channel = bot.get_channel(int(channel_id))
-        if channel:
-            await channel.send("✅ **SamosaBot is up and running!** 🔥")
-        else:
-            logging.warning(f"Could not find channel {channel_id} for guild {guild_id}. Removing entry.")
-            astra_db_ops.save_bot_status_channel(guild_id, None)  # Save None to remove entry in AstraDB
+        # Check if channel_id is None or empty, then skip updating
+        if channel_id is None:
+            logging.warning(f"No channel set for guild {guild_id}. Skipping status update.")
+            continue
+
+        try:
+            # Ensure channel_id is a valid integer before using it
+            channel = bot.get_channel(int(channel_id))
+            if channel:
+                await channel.send("✅ **SamosaBot is up and running!** 🔥")
+            else:
+                logging.warning(f"Could not find channel {channel_id} for guild {guild_id}. Removing entry.")
+                astra_db_ops.save_bot_status_channel(guild_id, None)
+        except Exception as e:
+            logging.error(f"Error sending bot status update for guild {guild_id}: {e}")
 
 # Prefix Command for Bot Status
 @bot.command(name="samosa")
