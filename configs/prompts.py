@@ -3,10 +3,10 @@ random_number = random.randint(1, 1000000)
 
 # QOTD prompt
 qotd_prompt = (
-    f"Generate an engaging, unpredictable, and quirky single-sentence Question of the Day for a Discord server. "
-    "The question should be thought-provoking yet humorous and silly, sparking lively group discussions. "
+    f"Generate a concise, engaging, unpredictable, and quirky single-sentence Question of the Day for a Discord server. "
+    "The question should be thought-provoking yet humorous and silly, sparking lively group discussions, but keep it short—ideally under 20 words."
     "Avoid starting with phrases like 'Question of the Day' and do not reference the random number. "
-    "For example: 'If animals could talk, which species would be the sassiest and why?' "
+    "For example: 'If animals could talk, which species would be the sassiest?' "
     f"Here is a random number to force variation: {random_number}. Do not include this number in your final response."
 )
 
