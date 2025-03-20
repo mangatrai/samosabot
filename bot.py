@@ -25,8 +25,10 @@ from discord.ext import commands, tasks
 from discord import app_commands
 from dotenv import load_dotenv
 import logging
+import math
+import asyncio
 
-from utils import astra_db_ops,openai_utils,keep_alive
+from utils import astra_db_ops,openai_utils,keep_alive,throttle
 from configs import prompts
 from configs.version import __version__
 
@@ -48,7 +50,9 @@ bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 tree = bot.tree
 
 # QOTD Schedule Tracking
-qotd_channels = {}  # Dictionary to store QOTD channel IDs per server  # Store the channel ID dynamically for scheduled QOTD
+qotd_channels = {}  # Dictionary to store QOTD channel IDs per server
+# Global dictionary to track user command timestamps
+user_command_timestamps = {}
 
 #prompts laoding
 qotd_prompt = prompts.qotd_prompt
@@ -285,6 +289,23 @@ async def on_ready():
         except Exception as e:
             logging.error(f"[ERROR] Failed to sync commands for {guild.name} ({guild.id}): {e}")
 
+@bot.check
+async def global_throttle_check(ctx):
+    """
+    Global check to throttle commands per user, excluding exempt commands.
+    
+    Raises:
+        commands.CommandOnCooldown: If the user is sending commands too frequently.
+    """
+    command_name = ctx.command.name if ctx.command else ""
+    retry_after = throttle.check_command_throttle(ctx.author.id, command_name)
+
+    if retry_after > 0:
+        cooldown = commands.Cooldown(1, retry_after)
+        raise commands.CommandOnCooldown(cooldown, retry_after, commands.BucketType.user)
+
+    return True
+
 @bot.event
 async def on_guild_join(guild: discord.Guild):
     logging.info(f"Joined new guild: {guild.name} ({guild.id})")
@@ -297,8 +318,37 @@ async def on_guild_remove(guild: discord.Guild):
 
 @bot.event
 async def on_command_error(ctx, error):
-    logging.error(f"Command error: {error}")
-    await ctx.send(f"An error occurred: {error}")
+    """
+    Global error handler for command invocation errors.
+
+    This event is triggered when a command raises an error during execution. It checks if the error is of type 
+    CommandOnCooldown and, if so, sends a custom cooldown message with a live countdown timer indicating when the user 
+    can try again. For other types of errors, it logs the error and notifies the user with a generic error message.
+
+    Args:
+        ctx (commands.Context): The context in which the command was invoked.
+        error (Exception): The exception raised by the command.
+    """
+    if isinstance(error, commands.CommandOnCooldown):
+        # Round up the retry time
+        retry = math.ceil(error.retry_after)
+        # Send an initial cooldown message with a countdown
+        cooldown_message = await ctx.send(f"Slow down {ctx.author.mention}! Try again in {retry} sec.")
+        # Update the message each second until cooldown expires
+        for remaining in range(retry, 0, -1):
+            try:
+                await asyncio.sleep(1)
+                await cooldown_message.edit(content=f"Slow down {ctx.author.mention}! Try again in {remaining} sec.")
+            except Exception:
+                break
+        try:
+            await cooldown_message.delete()
+        except Exception:
+            pass
+    else:
+        # Log other errors for debugging purposes
+        logging.error(f"Command error: {error}")
+        await ctx.send(f"An error occurred: {error}")
 
 # Wrap bot.run in a try-except block to handle unexpected crashes
 try:
