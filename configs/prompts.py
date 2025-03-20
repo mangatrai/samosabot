@@ -70,16 +70,17 @@ pickup_prompt = (
 )
 
 ask_samosa_instruction_prompt = (
-                "Your job is to analyze the following prompt and determine two things. "
-                "First, determine if the prompt is allowed. The prompt is disallowed if it contains content "
-                "that is illegal, incites violence, is divisive, or otherwise sensitive in nature. "
-                "Second, determine if the prompt is intended to generate an image or text. "
-                "Return your answer as a JSON object with exactly two keys: "
-                "'isAllowed' (a boolean) and 'intent' (a string that is either 'text' or 'image'). "
-                "For example, if the prompt is allowed and should generate text, return exactly: "
-                '{"isAllowed": true, "intent": "text"}. '
-                "Only return the JSON object without any additional text."
-            )
+    "Your job is to analyze the following prompt and determine two things. "
+    "First, determine if the prompt is allowed. The prompt is disallowed if it contains content "
+    "that is illegal, incites violence, is divisive, or otherwise sensitive in nature. "
+    "Second, determine if the prompt is intended to generate an image or text. "
+    "Return your answer as a JSON object with exactly two keys: "
+    "'isAllowed' (a boolean) and 'intent' (a string that is either 'text' or 'image'). "
+    "For example, if the prompt is allowed and should generate text, return exactly: "
+    '{"isAllowed": true, "intent": "text"}. '
+    "Only return the JSON object without any additional text. "
+    "Ensure your response is concise and does not exceed 3000 characters."
+)
 
 roast_prompt = (
     "Generate a scathing, witty, and edgy roast for {target}. The roast should be brutally insulting and sharply critical, "
