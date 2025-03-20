@@ -1,6 +1,6 @@
-# 🤖 Discord Bot with OpenAI & PostgreSQL
+# 🤖 Discord Bot with OpenAI & AstraDB
 
-A feature-rich Discord bot that brings **Trivia Games, QOTD (Question of the Day), AI-generated Jokes, Pickup Lines, Roasts, Compliments, and Fortune Telling** to your server. This bot integrates **OpenAI for dynamic content** and **PostgreSQL for persistent storage**.
+A feature-rich Discord bot that brings **Trivia Games, QOTD (Question of the Day), AI-generated Jokes, Pickup Lines, Roasts, Compliments, and Fortune Telling** to your server. This bot integrates **OpenAI for dynamic content** and **AstraDB for persistent storage**.
 
 ---
 
@@ -114,7 +114,5 @@ A feature-rich Discord bot that brings **Trivia Games, QOTD (Question of the Day
 | **Python** | Core programming language. |
 | **Discord.py** | Discord bot framework. |
 | **OpenAI API** | AI-generated content. |
-| **PostgreSQL** | Database for storing user data. |
-| **SQLAlchemy** | ORM for database queries. |
-
+| **AstraDB** | Database for storing user data. |
 ---

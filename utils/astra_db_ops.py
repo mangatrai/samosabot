@@ -1,3 +1,26 @@
+"""
+AstraDB Operations Module
+
+This module provides a suite of functions for interacting with AstraDB using the astrapy library.
+It handles database connectivity, collection management, and data operations essential for the
+Discord bot's functionality. Key features include:
+
+  - Establishing a connection to AstraDB using configuration parameters (API endpoint, namespace, and token)
+    loaded from environment variables.
+  - Creating and retrieving various collections, including:
+      • qotd_channels: Stores scheduled Question of the Day (QOTD) channel configurations.
+      • bot_status_channels: Stores channels for periodic bot status updates.
+      • trivia_leaderboard: Maintains trivia game statistics and leaderboards.
+      • user_requests: Logs user request data.
+      • daily_counters: Tracks daily request counts per user.
+  - Loading and saving QOTD schedules and bot status channels.
+  - Updating and fetching user statistics and trivia leaderboard information.
+  - Inserting user requests and managing daily request counts.
+
+All operations are logged using Python's logging module for debugging and error tracking.
+This module is a critical component for ensuring persistent data management within the Discord bot.
+"""
+
 from astrapy import DataAPIClient
 from astrapy.constants import VectorMetric
 import os
@@ -12,17 +35,6 @@ load_dotenv()
 ASTRA_API_ENDPOINT = os.getenv("ASTRA_API_ENDPOINT")  # AstraDB API endpoint
 ASTRA_NAMESPACE = os.getenv("ASTRA_NAMESPACE")  # Your namespace (like a database)
 ASTRA_API_TOKEN = os.getenv("ASTRA_API_TOKEN")  # API authentication token
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")  # Default to INFO if not set
-
-# Convert LOG_LEVEL string to logging level constant
-try:
-    log_level = getattr(logging, LOG_LEVEL.upper())
-except AttributeError:
-    print(f"WARNING: Invalid LOG_LEVEL '{LOG_LEVEL}'. Defaulting to INFO.")
-    log_level = logging.INFO
-
-# Configure logging
-logging.basicConfig(level=log_level, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Function to get a database connection
 def get_db_connection():
@@ -139,6 +151,18 @@ def get_daily_counters_collection():
         return collection
     except Exception as e:
         logging.error(f"[ERROR] Failed to retrieve daily_counters collection: {e}")
+        return None
+
+def get_registered_servers_collection():
+    database = get_db_connection()
+    if database is None:
+        return None
+    try:
+        collection = database.get_collection("registered_servers")
+        logging.debug(f"Retrieved registered_servers collection: {collection.info().name}")
+        return collection
+    except Exception as e:
+        logging.error(f"Failed to retrieve registered_servers collection: {e}")
         return None
 
 #Function to load qotd schedules
@@ -340,3 +364,71 @@ def increment_daily_request_count(user_id):
         logging.debug(f"Daily request count incremented for User ID {user_id}")
     except Exception as e:
         logging.error(f"Error incrementing daily request count: {e}")
+
+def register_or_update_guild(guild_id: int, guild_name: str,status):
+    """
+    Register a guild by saving its ID, name, installation date, status, and last updated date.
+    
+    If the guild is not already registered, insert a new record with:
+      - installed_at: current UTC time
+      - status: "JOINED"
+      - lastupdatedat: current UTC time
+    If the guild already exists, update its guild_name, set status to "JOINED", and update lastupdatedat
+    to the current UTC time.
+    """
+    collection = get_registered_servers_collection()
+    if collection is None:
+        return
+    try:
+        now = datetime.datetime.utcnow().isoformat()
+        existing_record = collection.find_one({"guild_id": str(guild_id)})
+        if not existing_record:
+            # Insert new record
+            document = {
+                "guild_id": str(guild_id),
+                "guild_name": guild_name,
+                "installed_at": now,
+                "status": status,
+                "lastupdatedat": now
+            }
+            collection.insert_one(document)
+            logging.debug(f"Inserted new guild record: {guild_name} ({guild_id}) at {now}")
+        else:
+            # Update existing record: update guild_name, set status to "JOINED", and update lastupdatedat.
+            collection.update_one(
+                {"guild_id": str(guild_id)},
+                {"$set": {
+                    "guild_name": guild_name,
+                    "status": status,
+                    "lastupdatedat": now
+                }}
+            )
+            logging.debug(f"Updated guild record: {guild_name} ({guild_id}) with lastupdatedat {now}")
+    except Exception as e:
+        logging.error(f"Error in register_or_update_guild: {e}")
+
+def list_registered_servers():
+    """
+    Retrieve a list of all registered servers from the 'registered_servers' collection in AstraDB.
+
+    Returns:
+        list: A list of dictionaries, each containing:
+              - 'guild_id': The ID of the guild.
+              - 'guild_name': The name of the guild.
+              - 'installed_at': The ISO timestamp of when the bot was registered.
+              Returns an empty list if no servers are found or if an error occurs.
+    """
+    collection = get_registered_servers_collection()
+    if not collection:
+        return []
+    try:
+        results = collection.find({})
+        servers = [{
+            "guild_id": doc.get("guild_id", "Unknown"),
+            "guild_name": doc.get("guild_name", "Unknown"),
+            "installed_at": doc.get("installed_at", "Unknown")
+        } for doc in results]
+        return servers
+    except Exception as e:
+        logging.error(f"Error retrieving registered servers: {e}")
+        return []

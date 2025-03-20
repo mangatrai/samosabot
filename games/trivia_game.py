@@ -1,10 +1,46 @@
+"""
+Trivia Game Module
+
+This module implements the interactive trivia game functionality for the Discord bot.
+It handles the creation, execution, and termination of trivia game sessions, supporting
+both prefix and slash commands. Key features include:
+
+  - Dynamically generating a set of unique trivia questions via OpenAI.
+  - Managing the state of an active trivia game per Discord server (guild).
+  - Handling user responses with a time limit for each question.
+  - Tracking and updating user scores, including correct and wrong attempts.
+  - Creating and displaying a trivia leaderboard based on stored statistics.
+  - Integrating with AstraDB for persistent storage of user stats and trivia leaderboards.
+
+Configuration parameters (loaded from environment variables):
+  - TRIVIA_QUESTION_BREAK_TIME: Delay (in seconds) between trivia questions.
+  - TRIVIA_START_DELAY: Delay before the first trivia question is asked.
+  - TRIVIA_ANSWER_TIME: Time (in seconds) allowed for users to answer each question.
+  - TRIVIA_QUESTION_COUNT: Total number of questions in each trivia session.
+
+Primary functions:
+  - start_trivia(source, category, bot, num_questions, is_slash): Starts a trivia game session.
+  - stop_trivia(source, guild_id, bot, is_slash): Stops an active trivia game session.
+  - create_trivia_leaderboard(): Retrieves and formats the trivia leaderboard from AstraDB.
+  - show_leaderboard(source, guild_id, bot): Displays the final trivia game results.
+
+Usage:
+  This module is intended to be imported and used as part of the SamosaBot Discord bot's
+  command handling system. The trivia game is triggered via user commands, and it utilizes
+  asynchronous operations to manage the game flow and user interactions.
+
+Example:
+  To start a trivia game, the bot command (or slash command) calls the start_trivia() function,
+  which generates trivia questions, sends them to the channel, collects user responses, updates scores,
+  and eventually shows a leaderboard upon game completion.
+"""
+
 import discord
 import json
 import asyncio
 import time
 import random
-import astra_db_ops
-import openai_utils  # Import openai_utils
+from utils import astra_db_ops,openai_utils
 from discord.ext import commands
 import logging
 import os
@@ -13,21 +49,10 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")  # LOG_LEVEL for logging
 TRIVIA_QUESTION_BREAK_TIME = int(os.getenv("TRIVIA_QUESTION_BREAK_TIME", 15))
 TRIVIA_START_DELAY = int(os.getenv("TRIVIA_START_DELAY", 30))
 TRIVIA_ANSWER_TIME = int(os.getenv("TRIVIA_ANSWER_TIME", 30))
 TRIVIA_QUESTION_COUNT = int(os.getenv("TRIVIA_QUESTION_COUNT", 10))
-
-# Convert LOG_LEVEL string to logging level constant
-try:
-    log_level = getattr(logging, LOG_LEVEL.upper())
-except AttributeError:
-    print(f"WARNING: Invalid LOG_LEVEL '{LOG_LEVEL}'. Defaulting to INFO.")
-    log_level = logging.INFO
-
-# Configure logging
-logging.basicConfig(level=log_level, format='%(asctime)s - %(levelname)s - %(message)s')
 
 active_trivia_games = {}
 
@@ -185,13 +210,25 @@ def create_trivia_leaderboard():
     leaderboard_data = astra_db_ops.get_trivia_leaderboard()
 
     if leaderboard_data:
-        # Format leaderboard as a table
-        table_header = "Rank | User | Total Correct | Total Wrong"
-        table_rows = []
+        # Define fixed column widths for better alignment and presentation
+        col_rank = 6
+        col_user = 20
+        col_correct = 10
+        
+        # Build header with emojis for each column
+        header = f"{'🏆 Rank':<{col_rank}} {'👤 User':<{col_user}} {'✅ Correct':<{col_correct}}"
+        # Use a decorative separator (em-dash)
+        separator = "─" * (col_rank + col_user + col_correct +  3)
+        table_rows = [header, separator]
+        
+        # Build each row with fixed width formatting
         for rank, entry in enumerate(leaderboard_data, start=1):
-            table_rows.append(f"{rank} | {entry['username']} | {entry['total_correct']} | {entry.get('total_wrong', 0)}")
-        leaderboard_table = "\n".join([table_header] + table_rows)
-        return f"📊 **Trivia Leaderboard:**\n```{leaderboard_table}```"  # Return after loop finishes
+            username = entry['username'][:col_user]  # Truncate username if it's too long
+            row = f"{rank:<{col_rank}} {username:<{col_user}} {entry['total_correct']:<{col_correct}}"
+            table_rows.append(row)
+        
+        leaderboard_table = "\n".join(table_rows)
+        return f"📊 **Trivia Leaderboard:**\n```{leaderboard_table}```"
     else:
         return "📊 **Trivia Leaderboard:**\nNo scores yet!"
 

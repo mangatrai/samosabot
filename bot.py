@@ -1,15 +1,34 @@
+"""
+SamosaBot Main Module
+
+This module serves as the primary entry point for the SamosaBot Discord bot. It is responsible for:
+  - Loading configuration from environment variables (including Discord credentials, bot prefix,
+    and AstraDB settings).
+  - Setting up Discord bot intents and initializing the bot instance with both prefix and slash commands.
+  - Registering and managing various commands and scheduled tasks, such as:
+      • Scheduled QOTD (Question of the Day) postings.
+      • Periodic bot status updates.
+      • Fun commands including jokes, roasts, compliments, pick-up lines, and fortune-telling.
+  - Interacting with AstraDB for persistent storage (e.g., QOTD schedules, bot status channels, and user statistics).
+  - Integrating with OpenAI via openai_utils to generate dynamic content based on user prompts.
+  - Loading additional bot extensions (joke_cog, trivia_cog, utils_cog, ask_cog) and synchronizing slash commands.
+  - Initiating a keep-alive web server to prevent the bot from being suspended in certain hosting environments.
+  
+All events, command errors, and operational messages are logged using the logging module for debugging and monitoring.
+Running this module starts the bot and connects it to Discord using the specified TOKEN.
+"""
+
+from configs import setup_logger
 import discord
 import os
 from discord.ext import commands, tasks
 from discord import app_commands
 from dotenv import load_dotenv
-import json
 import logging
 
-import astra_db_ops
-import openai_utils
-import prompts
-from version import __version__
+from utils import astra_db_ops,openai_utils,keep_alive
+from configs import prompts
+from configs.version import __version__
 
 # Load environment variables
 load_dotenv()
@@ -19,7 +38,6 @@ PREFIX = os.getenv("BOT_PREFIX", "!")  # Default prefix if not set
 ASTRA_API_ENDPOINT = os.getenv("ASTRA_API_ENDPOINT")  # AstraDB API endpoint
 ASTRA_NAMESPACE = os.getenv("ASTRA_NAMESPACE")  # Your namespace (like a database)
 ASTRA_API_TOKEN = os.getenv("ASTRA_API_TOKEN")  # API authentication token
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")  # LOG_LEVEL for logging
 
 # Intents & Bot Setup
 intents = discord.Intents.default()
@@ -28,16 +46,6 @@ intents.guilds = True
 intents.message_content = True  # Ensure message content intent is enabled
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 tree = bot.tree
-
-# Convert LOG_LEVEL string to logging level constant
-try:
-    log_level = getattr(logging, LOG_LEVEL.upper())
-except AttributeError:
-    print(f"WARNING: Invalid LOG_LEVEL '{LOG_LEVEL}'. Defaulting to INFO.")
-    log_level = logging.INFO
-
-# Configure logging
-logging.basicConfig(level=log_level, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # QOTD Schedule Tracking
 qotd_channels = {}  # Dictionary to store QOTD channel IDs per server  # Store the channel ID dynamically for scheduled QOTD
@@ -170,16 +178,6 @@ async def pickup(ctx):
     content = openai_utils.generate_openai_response(pickup_prompt)
     await ctx.send(f"💘 **Pick-up Line:** {content}")
 
-
-#Roast Machine
-@bot.command(name="roast")
-async def roast(ctx, user: discord.Member = None):
-    """Generate a witty roast for a user."""
-    target = user.display_name if user else ctx.author.display_name
-    prompt = f"Generate a witty and humorous roast for {target}. Keep it fun and lighthearted."
-    content = openai_utils.generate_openai_response(prompt)
-    await ctx.send(f"🔥 {content}")
-
 #Compliment Machine
 @bot.command(name="compliment")
 async def compliment(ctx, user: discord.Member = None):
@@ -196,6 +194,23 @@ async def fortune(ctx):
     prompt = "Generate a fun, unpredictable, and mystical fortune-telling message. Keep it engaging and lighthearted."
     content = openai_utils.generate_openai_response(prompt)
     await ctx.send(f"🔮 **Your fortune:** {content}")
+
+# Prefix command to ListServers who have bot registered
+@bot.command(name="listservers")
+async def list_servers(ctx):
+    """
+    List all servers (guilds) where the bot is registered along with their installation dates.
+    """
+    servers = astra_db_ops.list_registered_servers()
+    if servers:
+        response_lines = ["📜 **Registered Servers:**"]
+        for server in servers:
+            response_lines.append(
+                f"**{server['guild_name']}** (ID: {server['guild_id']}), Installed: {server['installed_at']}"
+            )
+        await ctx.send("\n".join(response_lines))
+    else:
+        await ctx.send("No registered servers found.")
 
 # Slash Command for Bot Status
 @tree.command(name="samosa", description="Check or enable bot status updates")
@@ -232,17 +247,17 @@ async def slash_pickup(interaction: discord.Interaction):
     content = openai_utils.generate_openai_response(pickup_prompt)
     await interaction.response.send_message(f"💘 **Pick-up Line:** {content}")
 
-
 @bot.event
 async def on_ready():
     await bot.wait_until_ready()  # Ensure bot is fully ready before proceeding
     logging.info(f"🤖 SamosaBot Version: {__version__}")
     logging.info(f'Logged in as {bot.user}')
 
-    await bot.load_extension("joke_cog")
-    await bot.load_extension("trivia_cog")
-    await bot.load_extension("utils_cog")
-    await bot.load_extension("ask_cog")
+    await bot.load_extension("cogs.joke")
+    await bot.load_extension("cogs.trivia")
+    await bot.load_extension("cogs.utils")
+    await bot.load_extension("cogs.ask")
+    await bot.load_extension("cogs.roast")
     # Load stored QOTD schedules and bot status channels from DB
     qotd_channels = load_qotd_schedules()
     bot_status_channels = load_bot_status_channels()
@@ -265,9 +280,20 @@ async def on_ready():
     for guild in bot.guilds:
         try:
             await tree.sync(guild=guild)
+            astra_db_ops.register_or_update_guild(guild.id, guild.name,"JOINED")
             logging.debug(f"[DEBUG] Synced slash commands for {guild.name} ({guild.id})")
         except Exception as e:
             logging.error(f"[ERROR] Failed to sync commands for {guild.name} ({guild.id}): {e}")
+
+@bot.event
+async def on_guild_join(guild: discord.Guild):
+    logging.info(f"Joined new guild: {guild.name} ({guild.id})")
+    astra_db_ops.register_or_update_guild(guild.id, guild.name,"JOINED")
+
+@bot.event
+async def on_guild_remove(guild: discord.Guild):
+    logging.info(f"Left guild: {guild.name} ({guild.id})")
+    astra_db_ops.register_or_update_guild(guild.id, guild.name,"LEFT")
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -276,8 +302,7 @@ async def on_command_error(ctx, error):
 
 # Wrap bot.run in a try-except block to handle unexpected crashes
 try:
-    from keep_alive import keep_alive  # Import keep_alive function
-    keep_alive()  # Start the background web server
+    keep_alive.keep_alive()  # Start the background web server
     bot.run(TOKEN)
 except Exception as e:
     logging.error(f"[ERROR] Bot encountered an unexpected issue: {e}")

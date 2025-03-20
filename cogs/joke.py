@@ -1,8 +1,29 @@
+"""
+JokeCog Module
+
+This module provides a Discord cog for delivering jokes through both traditional prefix
+commands and modern slash commands. It integrates with OpenAI via the openai_utils module
+and utilizes predefined prompts from the prompts module to generate jokes. A helper function,
+format_joke, attempts to parse and format the joke response (expected as JSON) by separating
+the setup and punchline into distinct lines. In cases where JSON parsing fails, the function
+falls back to a simple string split for formatting.
+
+Features:
+  - Supports multiple joke categories such as "General", "Dad Joke", and "Insult".
+  - Provides both a text-based command (!joke) and a slash command (/joke) interface.
+  - Dynamically generates jokes using OpenAI's API.
+  - Logs warnings if the response cannot be parsed as JSON.
+
+Usage:
+  Load this cog into your Discord bot to allow users to request jokes by invoking the
+  respective commands.
+"""
+
 import discord
 from discord.ext import commands
 from discord import app_commands
-import openai_utils
-import prompts
+from utils import openai_utils
+from configs import prompts
 import json
 import logging
 
