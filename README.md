@@ -1,6 +1,6 @@
 # 🤖 Discord Bot with OpenAI & AstraDB
 
-A feature-rich Discord bot that brings **Trivia Games, QOTD (Question of the Day), AI-generated Jokes, Pickup Lines, Roasts, Compliments, and Fortune Telling** to your server. This bot integrates **OpenAI for dynamic content** and **AstraDB for persistent storage**.
+A feature-rich Discord bot that brings **Trivia Games, QOTD (Question of the Day), AI-generated Jokes, Pickup Lines, Roasts, Compliments, and Fortune Telling** to your server. This bot integrates **OpenAI for dynamic content** and **AstraDB for persistent storage**. Additionally, the bot now records server registrations including installation date, current status (JOINED/LEFT), and last updated timestamp.
 
 ---
 
@@ -11,9 +11,11 @@ A feature-rich Discord bot that brings **Trivia Games, QOTD (Question of the Day
 - 📢 **QOTD (Question of the Day)** – Generate and schedule daily thought-provoking questions.
 - 🤣 **AI-Powered Jokes** – Fetch dad jokes, insult jokes, and general humor from OpenAI.
 - 💘 **Pickup Lines** – Generate flirty and witty pickup lines.
-- 🔥 **Roast & Compliment Machine** – Generate fun, AI-powered roasts and compliments.
-- 🔮 **AI Fortune Teller** – Get a fun AI-generated fortune about your future.
+- 🔥 **Roast & Compliment Machine** – Generate playful yet biting AI-powered roasts and compliments.
+- 🔮 **AI Fortune Teller** – Receive a fun AI-generated fortune about your future.
 - 🔄 **Scheduled Bot Status Updates** – Sends periodic bot status messages to a designated channel.
+- 🌐 **Server Registration & Monitoring** – Automatically records every server (guild) where the bot is installed, capturing the guild ID, name, installation date, current status (JOINED/LEFT), and last updated timestamp.
+- 📜 **List Servers** – Use the `!listservers` command to display all registered servers along with their details.
 
 ---
 
@@ -31,6 +33,7 @@ A feature-rich Discord bot that brings **Trivia Games, QOTD (Question of the Day
 |--------------|-------------|
 | `/trivia start <category>` | Start a trivia game in the selected category. |
 | `/trivia stop` | Stop an ongoing trivia game. |
+| `/trivia leaderboard` | View the top trivia players on the server. |
 
 #### 🎯 Available Trivia Categories:
 - History
@@ -64,6 +67,7 @@ A feature-rich Discord bot that brings **Trivia Games, QOTD (Question of the Day
 | Slash Command | Description |
 |--------------|-------------|
 | `/qotd` | Get a random question. |
+
 ---
 
 ### 🤣 AI Jokes
@@ -105,14 +109,23 @@ A feature-rich Discord bot that brings **Trivia Games, QOTD (Question of the Day
 | Slash Command | Description |
 |--------------|-------------|
 | `/samosa botstatus <channel>` | Set a bot status channel. |
+
+---
+
+### 🌐 Server Registration & Monitoring
+| Command | Description |
+|---------|-------------|
+| `!listservers` | List all registered servers with details such as guild name, ID, installation date, status, and last updated timestamp. |
+
 ---
 
 ## 🎯 Built With
 
-| Technology | Description |
-|------------|-------------|
-| **Python** | Core programming language. |
-| **Discord.py** | Discord bot framework. |
-| **OpenAI API** | AI-generated content. |
-| **AstraDB** | Database for storing user data. |
+| Technology      | Description                                       |
+|-----------------|---------------------------------------------------|
+| **Python**      | Core programming language.                        |
+| **Discord.py**  | Discord bot framework for prefix and slash commands. |
+| **OpenAI API**  | AI-generated dynamic content.                     |
+| **AstraDB**     | Database for persistent storage via astrapy.       |
+
 ---
