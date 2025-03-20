@@ -40,6 +40,7 @@ PREFIX = os.getenv("BOT_PREFIX", "!")  # Default prefix if not set
 ASTRA_API_ENDPOINT = os.getenv("ASTRA_API_ENDPOINT")  # AstraDB API endpoint
 ASTRA_NAMESPACE = os.getenv("ASTRA_NAMESPACE")  # Your namespace (like a database)
 ASTRA_API_TOKEN = os.getenv("ASTRA_API_TOKEN")  # API authentication token
+EXTENSIONS = os.getenv("EXTENSIONS", "").split(",")
 
 # Intents & Bot Setup
 intents = discord.Intents.default()
@@ -265,11 +266,12 @@ async def on_ready():
     logging.info(f"🤖 SamosaBot Version: {__version__}")
     logging.info(f'Logged in as {bot.user}')
 
-    await bot.load_extension("cogs.joke")
-    await bot.load_extension("cogs.trivia")
-    await bot.load_extension("cogs.utils")
-    await bot.load_extension("cogs.ask")
-    await bot.load_extension("cogs.roast")
+    for ext in EXTENSIONS:
+        try:
+            await bot.load_extension(ext)
+        except commands.ExtensionAlreadyLoaded:
+            logging.error(f"Extension '{ext}' is already loaded. Skipping.")
+
     # Load stored QOTD schedules and bot status channels from DB
     qotd_channels = load_qotd_schedules()
     bot_status_channels = load_bot_status_channels()
