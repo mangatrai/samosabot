@@ -1,8 +1,22 @@
+"""
+TriviaCog Module
+
+This module defines the TriviaCog for the SamosaBot Discord bot. It provides trivia game functionalities, including:
+  - Starting a trivia game in a specified category.
+  - Stopping an ongoing trivia game.
+  - Displaying the trivia leaderboard.
+  - Retrieving individual user trivia statistics.
+
+The cog supports both traditional prefix commands (using discord.ext.commands) and modern slash commands (using discord.app_commands). Trivia game logic is managed via the external module 'trivia_game', while user statistics and leaderboard data are handled through 'astra_db_ops'.
+
+Usage:
+  Simply load this cog into your Discord bot to enable interactive trivia commands for your server.
+"""
 import discord
 from discord.ext import commands
 from discord import app_commands
-import astra_db_ops
-import trivia_game
+from utils import astra_db_ops
+from games import trivia_game
 
 class TriviaCog(commands.Cog):
     def __init__(self, bot):
