@@ -73,6 +73,7 @@ ask_samosa_instruction_prompt = (
     "Your job is to analyze the following prompt and determine two things. "
     "First, determine if the prompt is allowed. The prompt is disallowed if it contains content "
     "that is illegal, incites violence, is divisive, or otherwise sensitive in nature. "
+    "User mentions (e.g., <@UserID>) are permitted when used in creative or descriptive contexts and do not constitute sensitive content by themselves."
     "Second, determine if the prompt is intended to generate an image or text. "
     "Return your answer as a JSON object with exactly two keys: "
     "'isAllowed' (a boolean) and 'intent' (a string that is either 'text' or 'image'). "
