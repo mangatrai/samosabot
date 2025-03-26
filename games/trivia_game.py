@@ -56,24 +56,128 @@ TRIVIA_QUESTION_COUNT = int(os.getenv("TRIVIA_QUESTION_COUNT", 10))
 
 active_trivia_games = {}
 
+async def get_user_display_name(bot, user_id, guild_id):
+    """Helper function to safely get user display name."""
+    try:
+        # First try to get user from bot's cache
+        user = bot.get_user(user_id)
+        if user:
+            return user.display_name
+        
+        # If not in cache, try to fetch from Discord
+        user = await bot.fetch_user(user_id)
+        if user:
+            return user.display_name
+        
+        # If still not found, try to get from guild members
+        guild = bot.get_guild(guild_id)
+        if guild:
+            member = guild.get_member(user_id)
+            if member:
+                return member.display_name
+        
+        # If all else fails, return a fallback name
+        return f"User {user_id}"
+    except Exception as e:
+        logging.error(f"Error getting user display name for {user_id}: {e}")
+        return f"User {user_id}"
+
+class TriviaView(discord.ui.View):
+    def __init__(self, question_data, correct_answer, timeout=30):
+        super().__init__(timeout=timeout)
+        self.question_data = question_data
+        self.correct_answer = correct_answer
+        self.answered_users = set()  # Track who has answered
+        self.correct_users = set()   # Track who got it right
+        self.wrong_users = set()     # Track who got it wrong
+        
+        # Create buttons for each option
+        for option in question_data["options"]:
+            button = discord.ui.Button(
+                label=option,
+                style=discord.ButtonStyle.primary,
+                custom_id=f"answer_{option[0]}"  # Use first letter (A, B, C, D) as custom_id
+            )
+            button.callback = lambda interaction, ans=option[0]: self.answer_callback(interaction, ans)
+            self.add_item(button)
+
+    async def answer_callback(self, interaction: discord.Interaction, answer: str):
+        # Prevent multiple answers from the same user
+        if interaction.user.id in self.answered_users:
+            await interaction.response.send_message("You have already answered this question!", ephemeral=True)
+            return
+
+        self.answered_users.add(interaction.user.id)
+        
+        # Update button styles to show who answered what
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                if item.custom_id == f"answer_{answer}":
+                    item.style = discord.ButtonStyle.success if answer == self.correct_answer else discord.ButtonStyle.danger
+                    item.disabled = True
+                elif item.custom_id == f"answer_{self.correct_answer}":
+                    item.style = discord.ButtonStyle.success
+                    item.disabled = True
+                else:
+                    item.disabled = True
+
+        # Track correct/wrong answers
+        if answer == self.correct_answer:
+            self.correct_users.add(interaction.user.id)
+        else:
+            self.wrong_users.add(interaction.user.id)
+
+        await interaction.response.edit_message(view=self)
+
+    async def on_timeout(self):
+        # Disable all buttons when time is up
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+                if item.custom_id == f"answer_{self.correct_answer}":
+                    item.style = discord.ButtonStyle.success
+
 # Trivia Logic (Handles Both Prefix & Slash Commands)
 async def start_trivia(source, category: str = "general", bot=None, num_questions: int = TRIVIA_QUESTION_COUNT, is_slash: bool = False):
     guild_id = source.guild.id if isinstance(source, discord.ext.commands.Context) else source.guild_id
     user_name = source.user.display_name if is_slash else source.author.display_name
+    
     if guild_id in active_trivia_games:
         if is_slash:
             await source.response.send_message("❌ A trivia game is already running in this server. Use `/trivia stop` to end it first.", ephemeral=True)
         else:
             await source.send("❌ A trivia game is already running in this server. Use `!trivia stop` to end it first.")
         return
-    active_trivia_games[guild_id] = {"questions_asked": 1, "max_questions": num_questions, "scores": {}}
+
+    # Initialize game with state
+    active_trivia_games[guild_id] = {
+        "questions_asked": 1,
+        "max_questions": num_questions,
+        "scores": {},  # Track correct answers
+        "wrong_answers": {},  # Track wrong answers
+        "category": category,
+        "state": "initializing"  # Track game state
+    }
+
     if is_slash:
         await source.response.defer()
         await asyncio.sleep(1)
         await source.followup.send(f"🎉 {user_name} has started a {category} trivia game! First question in {TRIVIA_START_DELAY} seconds...")
     else:
         await source.send(f"🎉 {user_name} has started a {category} trivia game! First question in {TRIVIA_START_DELAY} seconds...")
-    await asyncio.sleep(TRIVIA_START_DELAY)
+
+    # Split the initial delay into smaller chunks to check for stop command
+    for _ in range(TRIVIA_START_DELAY):
+        if guild_id not in active_trivia_games:
+            return
+        await asyncio.sleep(1)
+
+    # Update state to indicate we're generating questions
+    if guild_id not in active_trivia_games:
+        return
+    active_trivia_games[guild_id]["state"] = "generating_questions"
+
+    # Generate questions
     content = openai_utils.generate_openai_response(
         f"Generate {num_questions} unique and engaging trivia questions in the category of {category}. "
         f"The question must be fresh and not a duplicate of any previous trivia session. "
@@ -87,8 +191,14 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
         f"Respond in a JSON array format, where each object has 'question', 'options', and 'correct_answer' keys. "
         f"Example: [{{\"question\": \"...\", \"options\": [\"A: ...\", \"B: ...\", ...], \"correct_answer\": \"A\"}}, ...]"
     )
+
+    # Check if game was stopped during question generation
+    if guild_id not in active_trivia_games:
+        return
+
     if content.startswith("```json"):
         content = content.strip("```json").strip("```")
+
     try:
         questions_data = json.loads(content)
     except (json.JSONDecodeError, KeyError, Exception) as e:
@@ -98,15 +208,19 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
         else:
             await source.send("⚠️ Error: Failed to generate trivia questions. Please try again later.")
         return
-    
+
+    # Update state to indicate we're playing
+    if guild_id not in active_trivia_games:
+        return
+    active_trivia_games[guild_id]["state"] = "playing"
+
     for question_data in questions_data:
         if guild_id not in active_trivia_games:
             return
-        
-        active_trivia_games[guild_id]["wrong_attempts"] = {}
+
         try:
             question = question_data["question"]
-            options = "\n".join(question_data["options"])
+            options = question_data["options"]
             correct_answer = question_data["correct_answer"]
         except (KeyError, TypeError) as e:
             logging.error(f"Error parsing question data: {e}")
@@ -118,74 +232,94 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
 
         if guild_id not in active_trivia_games:
             return
-    
-        question_number = active_trivia_games[guild_id]["questions_asked"]
-        subtext = f"Question {question_number} of {num_questions} | Reply with A, B, C, or D.\nYou have {TRIVIA_ANSWER_TIME} seconds to answer."
 
+        question_number = active_trivia_games[guild_id]["questions_asked"]
+        
+        # Create embed for the question
+        embed = discord.Embed(
+            title=f"Question {question_number} of {num_questions}",
+            description=question,
+            color=discord.Color.blue()
+        )
+        embed.set_footer(text=f"Category: {category} | Time: {TRIVIA_ANSWER_TIME} seconds")
+
+        # Create view with buttons
+        view = TriviaView(question_data, correct_answer, timeout=TRIVIA_ANSWER_TIME)
+
+        # Send the question
         if is_slash:
-            await source.channel.send(f"🧠 **Trivia Question {question_number}:** {question}\n{options}\n{subtext}")
+            message = await source.channel.send(embed=embed, view=view)
         else:
-            await source.send(f"🧠 **Trivia Question {question_number}:** {question}\n{options}\n{subtext}")
-    
-        def check(m):
-            return (m.channel.id == (source.channel_id if is_slash else source.channel.id) and m.content.upper() in ["A", "B", "C", "D"])
-    
-        start_time = time.time()
-        correct_answered = False
-        while not correct_answered:
-            try:
-                remaining_time = TRIVIA_ANSWER_TIME - (time.time() - start_time)
-                if remaining_time <= 0:
-                    raise asyncio.TimeoutError
-                
-                response = await bot.wait_for("message", check=check, timeout=remaining_time)
-                
-                if guild_id not in active_trivia_games:
-                    return
-                user_answer = response.content.upper()
-                user_id = response.author.id
-                answering_user_name = response.author.display_name
-                if user_answer == correct_answer:
-                    active_trivia_games[guild_id]["scores"][user_id] = active_trivia_games[guild_id]["scores"].get(user_id, 0) + 1
-                    astra_db_ops.update_user_stats(user_id, answering_user_name, correct_increment=1)
-                    correct_answered = True
-                    if is_slash:
-                        await source.channel.send(f"✅ Correct! {answering_user_name} got it right! Your score: {active_trivia_games[guild_id]['scores'][user_id]}")
-                    else:
-                        await response.channel.send(f"✅ Correct! {answering_user_name} got it right! Your score: {active_trivia_games[guild_id]['scores'][user_id]}")
-                    
-                    if active_trivia_games[guild_id]["questions_asked"] < num_questions:
-                        if is_slash:
-                            await source.channel.send(f"⏳ Next question will appear in {TRIVIA_QUESTION_BREAK_TIME} seconds...")
-                        else:
-                            await source.send(f"⏳ Next question will appear in {TRIVIA_QUESTION_BREAK_TIME} seconds...")
-                    break # Move to next question
-                else:
-                    if not active_trivia_games[guild_id].get("wrong_attempts", {}).get(user_id, False):
-                        astra_db_ops.update_user_stats(user_id, answering_user_name, wrong_increment=1)
-                        active_trivia_games[guild_id].setdefault("wrong_attempts", {})[user_id] = True
-                    await response.channel.send(f"❌ Wrong Answer! {answering_user_name} Try again! ⏳ {round(remaining_time)} seconds remaining")
-            except asyncio.TimeoutError:
-                if guild_id not in active_trivia_games:
-                    return
-                if is_slash:
-                    await source.channel.send(f"⏳ Time's up! The correct answer was: {correct_answer}")
-                else:
-                    await source.send(f"⏳ Time's up! The correct answer was: {correct_answer}")
-                if active_trivia_games[guild_id]["questions_asked"] < num_questions:
-                    if is_slash:
-                        await source.channel.send(f"⏳ Next question will appear in {TRIVIA_QUESTION_BREAK_TIME} seconds...")
-                    else:
-                        await source.send(f"⏳ Next question will appear in {TRIVIA_QUESTION_BREAK_TIME} seconds...")
-                break
+            message = await source.send(embed=embed, view=view)
+
+        # Wait for the view to timeout
+        await view.wait()
+
+        # Check if game was stopped during the question
         if guild_id not in active_trivia_games:
             return
+
+        # Create result embed
+        result_embed = discord.Embed(
+            title=f"Question {question_number} Results",
+            description=f"**Correct Answer:** {correct_answer}",
+            color=discord.Color.green()
+        )
+
+        # Add correct answers section
+        if view.correct_users:
+            correct_users_text = "\n".join([
+                f"✅ {await get_user_display_name(bot, user_id, guild_id)}" 
+                for user_id in view.correct_users
+            ])
+            result_embed.add_field(name="Correct Answers", value=correct_users_text, inline=False)
+            
+            # Update scores and stats for correct answers
+            for user_id in view.correct_users:
+                user_name = await get_user_display_name(bot, user_id, guild_id)
+                active_trivia_games[guild_id]["scores"][user_id] = active_trivia_games[guild_id]["scores"].get(user_id, 0) + 1
+                astra_db_ops.update_user_stats(user_id, user_name, correct_increment=1)
+
+        # Add wrong answers section
+        if view.wrong_users:
+            wrong_users_text = "\n".join([
+                f"❌ {await get_user_display_name(bot, user_id, guild_id)}" 
+                for user_id in view.wrong_users
+            ])
+            result_embed.add_field(name="Wrong Answers", value=wrong_users_text, inline=False)
+            
+            # Update stats for wrong answers
+            for user_id in view.wrong_users:
+                user_name = await get_user_display_name(bot, user_id, guild_id)
+                active_trivia_games[guild_id]["wrong_answers"][user_id] = active_trivia_games[guild_id]["wrong_answers"].get(user_id, 0) + 1
+                astra_db_ops.update_user_stats(user_id, user_name, wrong_increment=1)
+
+        # Add no answer section if applicable
+        if not view.answered_users:
+            result_embed.add_field(name="No Answers", value="No one answered this question!", inline=False)
+
+        # Send results
+        await message.edit(embed=result_embed, view=None)
+
+        # Update question counter
         active_trivia_games[guild_id]["questions_asked"] += 1
+        
+        # Break if we've reached the max questions
         if active_trivia_games[guild_id]["questions_asked"] > num_questions:
             break
-        await asyncio.sleep(TRIVIA_QUESTION_BREAK_TIME)
+
+        # Split the break time into smaller chunks to check for stop command
+        for _ in range(TRIVIA_QUESTION_BREAK_TIME):
+            if guild_id not in active_trivia_games:
+                return
+            await asyncio.sleep(1)
+
+    # Show final leaderboard
     if guild_id in active_trivia_games:
         await show_leaderboard(source, guild_id, bot)
+        # Remove the game after showing leaderboard
+        active_trivia_games.pop(guild_id, None)
+    
     if is_slash:
         await source.channel.send("🎉 Trivia game over! Thanks for playing!")
     else:
@@ -194,17 +328,78 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
 # Helper function to stop the trivia game
 async def stop_trivia(source, guild_id, bot, is_slash = False):
     if guild_id in active_trivia_games:
-        await show_leaderboard(source, guild_id, bot)
-        active_trivia_games.pop(guild_id, None)
-        if is_slash:
-            await source.response.send_message("🛑 Trivia game has been stopped.")
-        else:
-            await source.send("🛑 Trivia game has been stopped.")
+        try:
+            # Get the game data
+            game_data = active_trivia_games[guild_id]
+            game_state = game_data.get("state", "unknown")
+            
+            # Create a result embed
+            embed = discord.Embed(
+                title="🎮 Trivia Game Stopped",
+                description=f"Game in category: {game_data.get('category', 'general')}",
+                color=discord.Color.red()
+            )
+            
+            # Add state information
+            if game_state == "initializing":
+                embed.description += "\nGame was stopped before questions were generated."
+            elif game_state == "generating_questions":
+                embed.description += "\nGame was stopped while generating questions."
+            elif game_state == "playing":
+                embed.description += "\nGame was stopped during play."
+            
+            # Add current scores if any
+            if game_data.get("scores") or game_data.get("wrong_answers"):
+                scores_text = []
+                # Add users with correct answers
+                for user_id, score in game_data.get("scores", {}).items():
+                    try:
+                        user_name = await get_user_display_name(bot, user_id, guild_id)
+                        wrong_count = game_data.get("wrong_answers", {}).get(user_id, 0)
+                        scores_text.append(f"{user_name}: ✅ {score} | ❌ {wrong_count}")
+                    except Exception as e:
+                        logging.error(f"Error getting user name for {user_id}: {e}")
+                        continue
+                
+                # Add users with only wrong answers
+                for user_id, wrong_count in game_data.get("wrong_answers", {}).items():
+                    if user_id not in game_data.get("scores", {}):
+                        try:
+                            user_name = await get_user_display_name(bot, user_id, guild_id)
+                            scores_text.append(f"{user_name}: ❌ {wrong_count}")
+                        except Exception as e:
+                            logging.error(f"Error getting user name for {user_id}: {e}")
+                            continue
+                
+                if scores_text:
+                    embed.add_field(
+                        name="Current Scores",
+                        value="\n".join(scores_text),
+                        inline=False
+                    )
+            
+            # Send the embed
+            if is_slash:
+                await source.response.send_message(embed=embed)
+            else:
+                await source.send(embed=embed)
+            
+            # Remove the game from active games
+            active_trivia_games.pop(guild_id, None)
+            
+        except Exception as e:
+            logging.error(f"Error stopping trivia game: {e}")
+            error_message = "An error occurred while stopping the trivia game."
+            if is_slash:
+                await source.response.send_message(error_message, ephemeral=True)
+            else:
+                await source.send(error_message)
     else:
         if is_slash:
             await source.response.send_message("❌ No active trivia game found.")
         else:
             await source.send("❌ No active trivia game found.")
+
 # Helper function to create a trivia leaderboard
 def create_trivia_leaderboard():
     leaderboard_data = astra_db_ops.get_trivia_leaderboard()
@@ -235,27 +430,68 @@ def create_trivia_leaderboard():
 # Helper function to show the leaderboard
 async def show_leaderboard(source, guild_id, bot):
     if guild_id in active_trivia_games:
-        sorted_scores = sorted(
-            active_trivia_games[guild_id]["scores"].items(),
-            key=lambda x: x[1],
-            reverse=True
-        )
-
-        leaderboard_entries = []
-        for user_id, score in sorted_scores:
-            user = bot.get_user(user_id) or await bot.fetch_user(user_id)  # Fetch user safely
-            if user:
-                leaderboard_entries.append(f"🏆 {user.display_name}: {score} correct")
+        try:
+            game_data = active_trivia_games[guild_id]
+            
+            # Create an embed for the final results
+            embed = discord.Embed(
+                title="🎮 Final Trivia Results",
+                description=f"Category: {game_data.get('category', 'general')}",
+                color=discord.Color.gold()
+            )
+            
+            # Sort scores by points
+            sorted_scores = sorted(
+                game_data["scores"].items(),
+                key=lambda x: x[1],
+                reverse=True
+            )
+            
+            if sorted_scores or game_data.get("wrong_answers"):
+                # Create a formatted leaderboard for correct answers
+                correct_scores_text = []
+                for rank, (user_id, score) in enumerate(sorted_scores, 1):
+                    user_name = await get_user_display_name(bot, user_id, guild_id)
+                    wrong_count = game_data["wrong_answers"].get(user_id, 0)
+                    correct_scores_text.append(f"{rank}. {user_name}: ✅ {score} | ❌ {wrong_count}")
+                
+                if correct_scores_text:
+                    embed.add_field(
+                        name="🏆 Final Scores",
+                        value="\n".join(correct_scores_text),
+                        inline=False
+                    )
+                
+                # Add users who only got wrong answers
+                wrong_only_users = []
+                for user_id, wrong_count in game_data.get("wrong_answers", {}).items():
+                    if user_id not in game_data["scores"]:
+                        user_name = await get_user_display_name(bot, user_id, guild_id)
+                        wrong_only_users.append(f"{user_name}: ❌ {wrong_count}")
+                
+                if wrong_only_users:
+                    embed.add_field(
+                        name="❌ Wrong Answers Only",
+                        value="\n".join(wrong_only_users),
+                        inline=False
+                    )
             else:
-                leaderboard_entries.append(f"🏆 Unknown User ({user_id}): {score} correct")  # Safe fallback
-
-        leaderboard = "\n".join(leaderboard_entries)
-
-        if isinstance(source, commands.Context):  # Prefix command (!trivia stop)
-            await source.send(f"🎉 Trivia game over! Here are the final results:\n{leaderboard}")
-        else:  # Slash command (/trivia stop)
-            await source.channel.send(f"🎉 Trivia game over! Here are the final results:\n{leaderboard}")
-
-        # Remove the game session
-        if guild_id in active_trivia_games:
-            active_trivia_games.pop(guild_id, None)
+                embed.add_field(
+                    name="No Scores",
+                    value="No one participated in this game.",
+                    inline=False
+                )
+            
+            # Send the embed
+            if isinstance(source, commands.Context):  # Prefix command (!trivia stop)
+                await source.send(embed=embed)
+            else:  # Slash command (/trivia stop)
+                await source.channel.send(embed=embed)
+                
+        except Exception as e:
+            logging.error(f"Error showing leaderboard: {e}")
+            error_message = "An error occurred while showing the leaderboard."
+            if isinstance(source, commands.Context):
+                await source.send(error_message)
+            else:
+                await source.channel.send(error_message)
