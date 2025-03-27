@@ -83,10 +83,11 @@ async def get_user_display_name(bot, user_id, guild_id):
         return f"User {user_id}"
 
 class TriviaView(discord.ui.View):
-    def __init__(self, question_data, correct_answer, timeout=30):
+    def __init__(self, question_data, correct_answer, timeout=30, category="general"):
         super().__init__(timeout=timeout)
         self.question_data = question_data
         self.correct_answer = correct_answer
+        self.category = category
         self.answered_users = set()  # Track who has answered
         self.correct_users = set()   # Track who got it right
         self.wrong_users = set()     # Track who got it wrong
@@ -120,7 +121,7 @@ class TriviaView(discord.ui.View):
             # Get the current embed
             embed = self.message.embeds[0]
             # Update the footer with just the total count
-            embed.set_footer(text=f"Category: {self.question_data.get('category', 'general')} | Time: {self.timeout} seconds | {self.get_total_count_text()}")
+            embed.set_footer(text=f"Category: {self.category} | Time: {self.timeout} seconds | {self.get_total_count_text()}")
             await self.message.edit(embed=embed)
 
     async def answer_callback(self, interaction: discord.Interaction, answer: str):
@@ -176,15 +177,15 @@ class TriviaView(discord.ui.View):
             
             if not self.answered_users:
                 # No one answered - show a special message
-                embed.set_footer(text=f"Category: {self.question_data.get('category', 'general')} | Time's up! | No one answered!")
+                embed.set_footer(text=f"Category: {self.category} | Time's up! | No one answered!")
                 embed.color = discord.Color.red()  # Change color to red for unanswered questions
             else:
                 # Some people answered - show stats
-                embed.set_footer(text=f"Category: {self.question_data.get('category', 'general')} | Time's up! | {self.get_stats_text()}")
+                embed.set_footer(text=f"Category: {self.category} | Time's up! | {self.get_stats_text()}")
             
             await self.message.edit(embed=embed, view=self)
-            # Wait 15 seconds for both cases
-            await asyncio.sleep(15)
+            # Wait 5 seconds for both cases
+            await asyncio.sleep(5)
 
 # Trivia Logic (Handles Both Prefix & Slash Commands)
 async def start_trivia(source, category: str = "general", bot=None, num_questions: int = TRIVIA_QUESTION_COUNT, is_slash: bool = False):
@@ -293,7 +294,7 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
         embed.set_footer(text=f"Category: {category} | Time: {TRIVIA_ANSWER_TIME} seconds")
 
         # Create view with buttons
-        view = TriviaView(question_data, correct_answer, timeout=TRIVIA_ANSWER_TIME)
+        view = TriviaView(question_data, correct_answer, timeout=TRIVIA_ANSWER_TIME, category=category)
 
         # Send the question
         if is_slash:
