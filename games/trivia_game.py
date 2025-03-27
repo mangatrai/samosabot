@@ -90,6 +90,9 @@ class TriviaView(discord.ui.View):
         self.answered_users = set()  # Track who has answered
         self.correct_users = set()   # Track who got it right
         self.wrong_users = set()     # Track who got it wrong
+        self.user_answers = {}       # Track each user's answer
+        self.user_buttons = {}       # Track which button each user selected
+        self.message = None          # Store the message for later updates
         
         # Create buttons for each option
         for option in question_data["options"]:
@@ -104,22 +107,11 @@ class TriviaView(discord.ui.View):
     async def answer_callback(self, interaction: discord.Interaction, answer: str):
         # Prevent multiple answers from the same user
         if interaction.user.id in self.answered_users:
-            await interaction.response.send_message("You have already answered this question!", ephemeral=True)
+            await interaction.response.defer()
             return
 
         self.answered_users.add(interaction.user.id)
-        
-        # Update button styles to show who answered what
-        for item in self.children:
-            if isinstance(item, discord.ui.Button):
-                if item.custom_id == f"answer_{answer}":
-                    item.style = discord.ButtonStyle.success if answer == self.correct_answer else discord.ButtonStyle.danger
-                    item.disabled = True
-                elif item.custom_id == f"answer_{self.correct_answer}":
-                    item.style = discord.ButtonStyle.success
-                    item.disabled = True
-                else:
-                    item.disabled = True
+        self.user_answers[interaction.user.id] = answer
 
         # Track correct/wrong answers
         if answer == self.correct_answer:
@@ -127,15 +119,45 @@ class TriviaView(discord.ui.View):
         else:
             self.wrong_users.add(interaction.user.id)
 
+        # Find and disable only the button this user selected
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                if item.custom_id == f"answer_{answer}":
+                    # Store the button for this user
+                    self.user_buttons[interaction.user.id] = item
+                    # Disable only this button
+                    item.disabled = True
+                    # Set style to blurple (nice purple color that works in both themes)
+                    item.style = discord.ButtonStyle.blurple
+                    # Update the button's appearance
+                    item.emoji = "✋"  # Add a hand emoji to make it more visible
+
+        # Update the message with the new button state
+        if self.message:
+            await self.message.edit(view=self)
         await interaction.response.edit_message(view=self)
 
     async def on_timeout(self):
-        # Disable all buttons when time is up
+        # When time is up, show final state
         for item in self.children:
             if isinstance(item, discord.ui.Button):
-                item.disabled = True
+                # Show correct answer in green
                 if item.custom_id == f"answer_{self.correct_answer}":
                     item.style = discord.ButtonStyle.success
+                    item.emoji = "✅"  # Add checkmark for correct answer
+                # Show wrong answers in red
+                elif item.custom_id in [f"answer_{answer}" for answer in set(self.user_answers.values())]:
+                    item.style = discord.ButtonStyle.danger
+                    item.emoji = "❌"  # Add cross for wrong answers
+                # Disable all remaining buttons
+                item.disabled = True
+
+        # Update the message with the final state
+        if self.message:
+            await self.message.edit(view=self)
+            
+        # Wait 10 seconds to show the final state
+        await asyncio.sleep(10)
 
 # Trivia Logic (Handles Both Prefix & Slash Commands)
 async def start_trivia(source, category: str = "general", bot=None, num_questions: int = TRIVIA_QUESTION_COUNT, is_slash: bool = False):
@@ -252,6 +274,9 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
         else:
             message = await source.send(embed=embed, view=view)
 
+        # Store the message in the view for later updates
+        view.message = message
+
         # Wait for the view to timeout
         await view.wait()
 
@@ -259,10 +284,13 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
         if guild_id not in active_trivia_games:
             return
 
+        # Add a small delay to ensure the final state is visible
+        await asyncio.sleep(1)
+
         # Create result embed
         result_embed = discord.Embed(
             title=f"Question {question_number} Results",
-            description=f"**Correct Answer:** {correct_answer}",
+            description=f"**Question:** {question}\n**Correct Answer:** {correct_answer}",
             color=discord.Color.green()
         )
 

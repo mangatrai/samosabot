@@ -1,12 +1,15 @@
 import time
 import os
 from dotenv import load_dotenv
+import logging
 
-# Load environment variables
-load_dotenv()
+# Force reload environment variables
+load_dotenv(override=True)
 
 # Configuration Variables
 EXEMPT_COMMANDS = os.getenv("EXEMPT_COMMANDS", "trivia").lower().split(",")
+logging.info(f"Loaded exempt commands: {EXEMPT_COMMANDS}")
+
 DELAY_BETWEEN_COMMANDS = int(os.getenv("DELAY_BETWEEN_COMMANDS", "5"))
 MAX_ALLOWED_PER_MINUTE = int(os.getenv("MAX_ALLOWED_PER_MINUTE", "10"))
 
@@ -33,8 +36,12 @@ def check_command_throttle(user_id: int, command_name: str) -> float:
     """
     now = time.time()
     
+    # Strip only '!' prefix from command name
+    command_name = command_name.lstrip('!').lower()
+    
     # If command is exempt, skip throttling.
-    if command_name.lower() in EXEMPT_COMMANDS:
+    if command_name in EXEMPT_COMMANDS:
+        logging.info(f"Command '{command_name}' is exempt from throttling")
         return 0
 
     # Initialize or clean up the user's timestamp list (only consider the last 60 seconds)
@@ -47,13 +54,16 @@ def check_command_throttle(user_id: int, command_name: str) -> float:
         last_timestamp = user_command_timestamps[user_id][-1]
         gap = now - last_timestamp
         if gap < DELAY_BETWEEN_COMMANDS:
-            return DELAY_BETWEEN_COMMANDS - gap  # seconds to wait
+            wait_time = DELAY_BETWEEN_COMMANDS - gap
+            logging.info(f"User {user_id} needs to wait {wait_time:.1f} seconds before using '{command_name}' (command gap)")
+            return wait_time
 
     # Enforce a maximum of MAX_ALLOWED_PER_MINUTE commands per minute
     if len(user_command_timestamps[user_id]) >= MAX_ALLOWED_PER_MINUTE:
         earliest = user_command_timestamps[user_id][0]
         wait_time = 60 - (now - earliest)
         if wait_time > 0:
+            logging.info(f"User {user_id} needs to wait {wait_time:.1f} seconds before using '{command_name}' (rate limit)")
             return wait_time
 
     # Record the current command timestamp if no throttling conditions are triggered
