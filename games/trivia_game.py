@@ -91,7 +91,6 @@ class TriviaView(discord.ui.View):
         self.correct_users = set()   # Track who got it right
         self.wrong_users = set()     # Track who got it wrong
         self.user_answers = {}       # Track each user's answer
-        self.user_buttons = {}       # Track which button each user selected
         self.message = None          # Store the message for later updates
         
         # Create buttons for each option
@@ -104,6 +103,26 @@ class TriviaView(discord.ui.View):
             button.callback = lambda interaction, ans=option[0]: self.answer_callback(interaction, ans)
             self.add_item(button)
 
+    def get_stats_text(self):
+        """Get formatted stats text"""
+        total = len(self.answered_users)
+        correct = len(self.correct_users)
+        wrong = len(self.wrong_users)
+        return f"👥 Total: {total} | ✅ Correct: {correct} | ❌ Wrong: {wrong}"
+
+    def get_total_count_text(self):
+        """Get just the total count text"""
+        return f"👥 Total answers: {len(self.answered_users)}"
+
+    async def update_question_message(self):
+        """Update the question message with current answer count"""
+        if self.message:
+            # Get the current embed
+            embed = self.message.embeds[0]
+            # Update the footer with just the total count
+            embed.set_footer(text=f"Category: {self.question_data.get('category', 'general')} | Time: {self.timeout} seconds | {self.get_total_count_text()}")
+            await self.message.edit(embed=embed)
+
     async def answer_callback(self, interaction: discord.Interaction, answer: str):
         # Prevent multiple answers from the same user
         if interaction.user.id in self.answered_users:
@@ -113,29 +132,27 @@ class TriviaView(discord.ui.View):
         self.answered_users.add(interaction.user.id)
         self.user_answers[interaction.user.id] = answer
 
+        # Get the text of the selected option
+        selected_option = next((opt for opt in self.question_data["options"] if opt.startswith(answer)), answer)
+
         # Track correct/wrong answers
         if answer == self.correct_answer:
             self.correct_users.add(interaction.user.id)
+            await interaction.response.send_message(
+                f"Your answer \"{selected_option}\" has been recorded!\n"
+                f"{self.get_total_count_text()}",
+                ephemeral=True
+            )
         else:
             self.wrong_users.add(interaction.user.id)
+            await interaction.response.send_message(
+                f"Your answer \"{selected_option}\" has been recorded!\n"
+                f"{self.get_total_count_text()}",
+                ephemeral=True
+            )
 
-        # Find and disable only the button this user selected
-        for item in self.children:
-            if isinstance(item, discord.ui.Button):
-                if item.custom_id == f"answer_{answer}":
-                    # Store the button for this user
-                    self.user_buttons[interaction.user.id] = item
-                    # Disable only this button
-                    item.disabled = True
-                    # Set style to blurple (nice purple color that works in both themes)
-                    item.style = discord.ButtonStyle.blurple
-                    # Update the button's appearance
-                    item.emoji = "✋"  # Add a hand emoji to make it more visible
-
-        # Update the message with the new button state
-        if self.message:
-            await self.message.edit(view=self)
-        await interaction.response.edit_message(view=self)
+        # Update the question message with new count
+        await self.update_question_message()
 
     async def on_timeout(self):
         # When time is up, show final state
@@ -154,10 +171,20 @@ class TriviaView(discord.ui.View):
 
         # Update the message with the final state
         if self.message:
-            await self.message.edit(view=self)
+            # Update the embed with final count and stats
+            embed = self.message.embeds[0]
             
-        # Wait 10 seconds to show the final state
-        await asyncio.sleep(10)
+            if not self.answered_users:
+                # No one answered - show a special message
+                embed.set_footer(text=f"Category: {self.question_data.get('category', 'general')} | Time's up! | No one answered!")
+                embed.color = discord.Color.red()  # Change color to red for unanswered questions
+            else:
+                # Some people answered - show stats
+                embed.set_footer(text=f"Category: {self.question_data.get('category', 'general')} | Time's up! | {self.get_stats_text()}")
+            
+            await self.message.edit(embed=embed, view=self)
+            # Wait 15 seconds for both cases
+            await asyncio.sleep(15)
 
 # Trivia Logic (Handles Both Prefix & Slash Commands)
 async def start_trivia(source, category: str = "general", bot=None, num_questions: int = TRIVIA_QUESTION_COUNT, is_slash: bool = False):
