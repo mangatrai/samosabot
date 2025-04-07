@@ -55,6 +55,14 @@ A feature-rich Discord bot that brings **Trivia Games, QOTD (Question of the Day
 - Marvel & DC (Comics)
 - Holidays & Traditions
 
+#### ⚡ Trivia Speed Settings:
+- **Slow-Paced** (Default): More time to think and answer questions
+- **Fast-Paced**: Quick questions with shorter answer times
+
+To start a fast-paced trivia game, use:
+- `!trivia start <category> fast` (Prefix command)
+- `/trivia start <category> speed:Fast` (Slash command)
+
 ---
 
 ### 📢 Question of the Day (QOTD)
@@ -127,5 +135,31 @@ A feature-rich Discord bot that brings **Trivia Games, QOTD (Question of the Day
 | **Discord.py**  | Discord bot framework for prefix and slash commands. |
 | **OpenAI API**  | AI-generated dynamic content.                     |
 | **AstraDB**     | Database for persistent storage via astrapy.       |
+
+---
+
+## 🔒 Verification & Setup
+
+### Required Bot Permissions
+- **Send Messages**: To send trivia questions, results, and other bot messages
+- **Embed Links**: To display formatted trivia questions and results
+- **Add Reactions**: For interactive elements
+- **View Channels**: To see messages in channels where trivia is played
+- **Read Message History**: To track user responses
+- **Use Slash Commands**: To register and use slash commands
+
+### Server Roles
+- **Bot Role**: Should have permissions to send messages, embed links, and add reactions
+- **User Role**: Should have permissions to view channels and send messages
+- **Admin Role**: Should have permissions to manage channels and roles
+
+### Verification Commands
+| Slash Command | Description |
+|--------------|-------------|
+| `/verification` | Configure verification settings (enable/disable/setup) |
+| `/verification_status` | Check current verification settings for the server |
+| `/setup_wizard` | Start the verification setup wizard to configure the system step by step |
+
+The verification system automatically creates a temporary verification channel for new members and guides them through the verification process.
 
 ---
