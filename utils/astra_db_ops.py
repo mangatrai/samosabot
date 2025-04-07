@@ -21,73 +21,9 @@ All operations are logged using Python's logging module for debugging and error 
 This module is a critical component for ensuring persistent data management within the Discord bot.
 """
 
-from astrapy import DataAPIClient
-from astrapy.constants import VectorMetric
-import os
-from dotenv import load_dotenv
 import logging
 import datetime
-
-# Load environment variables
-load_dotenv()
-
-# Load environment variables for AstraDB
-ASTRA_API_ENDPOINT = os.getenv("ASTRA_API_ENDPOINT")  # AstraDB API endpoint
-ASTRA_NAMESPACE = os.getenv("ASTRA_NAMESPACE")  # Your namespace (like a database)
-ASTRA_API_TOKEN = os.getenv("ASTRA_API_TOKEN")  # API authentication token
-
-# Function to get a database connection
-def get_db_connection():
-    try:
-        # Initialize the client and get a "Database" object
-        client = DataAPIClient(ASTRA_API_TOKEN)
-        database = client.get_database(ASTRA_API_ENDPOINT, keyspace=ASTRA_NAMESPACE)
-        logging.debug(f"Database connection established: {database.info().name}")
-        return database
-    except Exception as e:
-        logging.error(f"Error establishing database connection: {e}")
-        return None
-
-# Function to create collections
-def create_qotd_channels_collection():
-    """Creates the qotd_channels collection."""
-    try:
-        get_db_connection().create_collection("qotd_channels")
-        logging.debug("qotd_channels collection created successfully.")
-    except Exception as e:
-        logging.error(f"Error creating qotd_channels collection: {e}")
-
-def create_bot_status_channels_collection():
-    """Creates the bot_status_channels collection."""
-    try:
-        get_db_connection().create_collection("bot_status_channels")
-        logging.debug("bot_status_channels collection created successfully.")
-    except Exception as e:
-        logging.error(f"Error creating bot_status_channels collection: {e}")
-
-def create_trivia_leaderboard_collection():
-    """Creates the trivia_leaderboard collection."""
-    try:
-        get_db_connection().create_collection("trivia_leaderboard")
-        logging.debug("trivia_leaderboard collection created successfully.")
-    except Exception as e:
-        logging.error(f"Error creating trivia_leaderboard collection: {e}")
-
-def create_user_requests_collection():
-    """Creates the user_requests collection."""
-    try:
-        get_db_connection().create_collection("user_requests")
-        logging.debug("user_requests collection created successfully.")
-    except Exception as e:
-        logging.error(f"Error creating user_requests collection: {e}")
-
-def create_daily_counters_collection():
-    """Creates the daily_counters collection."""
-    try:
-        get_db_connection().create_collection("daily_counters")
-        logging.debug("daily_counters collection created successfully.")
-    except Exception as e:
-        logging.error(f"Error creating daily_counters collection: {e}")
+from .db_connection import get_db_connection
 
 # Function to get qotd channels collection
 def get_qotd_channels_collection():
@@ -163,6 +99,45 @@ def get_registered_servers_collection():
         return collection
     except Exception as e:
         logging.error(f"Failed to retrieve registered_servers collection: {e}")
+        return None
+
+def get_verification_attempts_collection():
+    """Get the verification_attempts collection."""
+    database = get_db_connection()
+    if database is None:
+        return None
+    try:
+        collection = database.get_collection("verification_attempts")
+        logging.debug(f"Retrieved verification_attempts collection: {collection.info().name}")
+        return collection
+    except Exception as e:
+        logging.error(f"Failed to retrieve verification_attempts collection: {e}")
+        return None
+
+def get_role_changes_collection():
+    """Get the role_changes collection."""
+    database = get_db_connection()
+    if database is None:
+        return None
+    try:
+        collection = database.get_collection("role_changes")
+        logging.debug(f"Retrieved role_changes collection: {collection.info().name}")
+        return collection
+    except Exception as e:
+        logging.error(f"Failed to retrieve role_changes collection: {e}")
+        return None
+
+def get_guild_verification_settings_collection():
+    """Get the guild_verification_settings collection."""
+    database = get_db_connection()
+    if database is None:
+        return None
+    try:
+        collection = database.get_collection("guild_verification_settings")
+        logging.debug(f"Retrieved guild_verification_settings collection: {collection.info().name}")
+        return collection
+    except Exception as e:
+        logging.error(f"Failed to retrieve guild_verification_settings collection: {e}")
         return None
 
 #Function to load qotd schedules
@@ -432,3 +407,210 @@ def list_registered_servers():
     except Exception as e:
         logging.error(f"Error retrieving registered servers: {e}")
         return []
+
+def log_verification_attempt(
+    user_id: str,
+    username: str,
+    guild_id: str,
+    stage: str,
+    success: bool = None,
+    details: str = None
+):
+    """Log a verification attempt or stage completion."""
+    try:
+        collection = get_verification_attempts_collection()
+        if collection is None:
+            return
+
+        document = {
+            "user_id": str(user_id),
+            "username": username,
+            "guild_id": str(guild_id),
+            "stage": stage,
+            "success": success,
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "details": details
+        }
+        
+        collection.insert_one(document)
+        logging.debug(f"Logged verification attempt for {username} at stage {stage}")
+    except Exception as e:
+        logging.error(f"Error logging verification attempt: {e}")
+
+def log_role_change(
+    user_id: str,
+    username: str,
+    guild_id: str,
+    role_name: str,
+    action: str
+):
+    """Log a role change event."""
+    try:
+        collection = get_role_changes_collection()
+        if collection is None:
+            return
+
+        document = {
+            "user_id": str(user_id),
+            "username": username,
+            "guild_id": str(guild_id),
+            "role_name": role_name,
+            "action": action,
+            "timestamp": datetime.datetime.utcnow().isoformat()
+        }
+        
+        collection.insert_one(document)
+        logging.debug(f"Logged role change for {username}: {action} {role_name}")
+    except Exception as e:
+        logging.error(f"Error logging role change: {e}")
+
+def get_verification_history(user_id: str, guild_id: str):
+    """Get verification history for a user in a specific guild."""
+    try:
+        collection = get_verification_attempts_collection()
+        if collection is None:
+            return []
+
+        results = collection.find({
+            "user_id": str(user_id),
+            "guild_id": str(guild_id)
+        }, sort={"timestamp": -1})
+        
+        return list(results)
+    except Exception as e:
+        logging.error(f"Error getting verification history: {e}")
+        return []
+
+def get_role_history(user_id: str, guild_id: str):
+    """Get role change history for a user in a specific guild."""
+    try:
+        collection = get_role_changes_collection()
+        if collection is None:
+            return []
+
+        results = collection.find({
+            "user_id": str(user_id),
+            "guild_id": str(guild_id)
+        }, sort={"timestamp": -1})
+        
+        return list(results)
+    except Exception as e:
+        logging.error(f"Error getting role history: {e}")
+        return []
+
+def get_guild_verification_settings(guild_id: int) -> dict:
+    """
+    Get verification settings for a guild.
+    
+    Returns:
+        dict: Guild verification settings including:
+            - enabled: bool
+            - guest_role_name: str
+            - verified_role_name: str
+            - rules_channel_name: str
+            - roles_channel_name: str
+            - admin_channel_name: str
+            - admin_role_name: str
+    """
+    try:
+        collection = get_guild_verification_settings_collection()
+        result = collection.find_one({"guild_id": guild_id})
+        
+        if result:
+            return result
+        else:
+            # Return default settings if none exist
+            return {
+                "guild_id": guild_id,
+                "enabled": False,
+                "guest_role_name": "Guest",
+                "verified_role_name": "Verified",
+                "rules_channel_name": "rules",
+                "roles_channel_name": "reaction-roles",
+                "admin_channel_name": "council-chat",
+                "admin_role_name": "Staff"
+            }
+    except Exception as e:
+        logging.error(f"Error getting guild verification settings: {e}")
+        return None
+
+def update_guild_verification_settings(guild_id: int, settings: dict):
+    """
+    Update verification settings for a guild.
+    
+    Args:
+        guild_id: The Discord guild ID
+        settings: Dictionary containing the settings to update
+    """
+    try:
+        collection = get_guild_verification_settings_collection()
+        settings["guild_id"] = guild_id
+        collection.find_one_and_update(
+            {"guild_id": guild_id},
+            {"$set": settings},
+            upsert=True
+        )
+        logging.info(f"Updated verification settings for guild {guild_id}")
+    except Exception as e:
+        logging.error(f"Error updating guild verification settings: {e}")
+
+def toggle_guild_verification(guild_id: int, enabled: bool):
+    """
+    Toggle verification system for a guild.
+    
+    Args:
+        guild_id: The Discord guild ID
+        enabled: Whether to enable or disable verification
+    """
+    try:
+        collection = get_guild_verification_settings_collection()
+        collection.find_one_and_update(
+            {"guild_id": guild_id},
+            {"$set": {"enabled": enabled}},
+            upsert=True
+        )
+        logging.info(f"Toggled verification for guild {guild_id} to {enabled}")
+    except Exception as e:
+        logging.error(f"Error toggling guild verification: {e}")
+
+def update_guild_channel_settings(guild_id: int, channel_type: str, channel_name: str):
+    """
+    Update a specific channel setting for a guild.
+    
+    Args:
+        guild_id: The Discord guild ID
+        channel_type: Type of channel (rules, roles, admin)
+        channel_name: New channel name
+    """
+    try:
+        collection = get_guild_verification_settings_collection()
+        channel_key = f"{channel_type}_channel_name"
+        collection.find_one_and_update(
+            {"guild_id": guild_id},
+            {"$set": {channel_key: channel_name}},
+            upsert=True
+        )
+        logging.info(f"Updated {channel_type} channel for guild {guild_id} to {channel_name}")
+    except Exception as e:
+        logging.error(f"Error updating guild channel settings: {e}")
+
+def update_guild_role_settings(guild_id: int, role_type: str, role_name: str):
+    """
+    Update a specific role setting for a guild.
+    
+    Args:
+        guild_id: The Discord guild ID
+        role_type: Type of role (guest, verified, admin)
+        role_name: New role name
+    """
+    try:
+        collection = get_guild_verification_settings_collection()
+        role_key = f"{role_type}_role_name"
+        collection.find_one_and_update(
+            {"guild_id": guild_id},
+            {"$set": {role_key: role_name}},
+            upsert=True
+        )
+        logging.info(f"Updated {role_type} role for guild {guild_id} to {role_name}")
+    except Exception as e:
+        logging.error(f"Error updating guild role settings: {e}")

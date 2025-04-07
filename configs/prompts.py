@@ -1,6 +1,26 @@
 import random
 random_number = random.randint(1, 1000000)
 
+# Verification prompt
+verification_prompt = (
+    f"Generate 3 simple verification questions for a Discord server that:\n"
+    f"1. Are very easy to answer\n"
+    f"2. Have clear, unambiguous answers\n"
+    f"3. Are appropriate for all ages\n"
+    f"4. Don't require special knowledge\n"
+    f"5. Are similar in difficulty to these examples:\n"
+    f"   - 'What is 2+2?' (answer: '4')\n"
+    f"   - 'What color is the sky?' (answer: 'blue')\n"
+    f"   - 'How many days are in a week?' (answer: '7')\n\n"
+    f"Return the questions in this exact JSON format:\n"
+    f"[\n"
+    f"    {{'question': 'Question 1?', 'answer': 'answer1'}},\n"
+    f"    {{'question': 'Question 2?', 'answer': 'answer2'}},\n"
+    f"    {{'question': 'Question 3?', 'answer': 'answer3'}}\n"
+    f"]\n\n"
+    f"Here is a random number to force variation: {random_number}. Do not include this number in your response."
+)
+
 # QOTD prompt
 qotd_prompt = (
     f"Generate a concise, engaging, unpredictable, and quirky single-sentence Question of the Day for a Discord server. "
@@ -64,9 +84,9 @@ pickup_prompt = (
     f"Examples:\n"
     f"- 'Are you French? Because Eiffel for you.'\n"
     f"- 'If kisses were snowflakes, I'd send you a blizzard.'\n"
-    f"- 'Are you made of copper and tellurium? Because you’re Cu-Te.'\n"
-    f"- 'I was blinded by your beauty… but I’m fine now. Hey, what’s your name again?'\n"
-    f"- 'Are you an unfinished novel? Because I just can’t put you down.' "
+    f"- 'Are you made of copper and tellurium? Because you're Cu-Te.'\n"
+    f"- 'I was blinded by your beauty… but I'm fine now. Hey, what's your name again?'\n"
+    f"- 'Are you an unfinished novel? Because I just can't put you down.' "
 )
 
 ask_samosa_instruction_prompt = (

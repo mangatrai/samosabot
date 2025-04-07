@@ -9,11 +9,13 @@ function `generate_openai_response`, which supports three types of responses bas
               indicating the desired response type, either "text" or "image").
   - "text": Generates a text-based response to the given prompt.
   - "image": Generates an image based on the prompt and returns the URL of the generated image.
+  - "verification": Generates verification questions for Discord server verification.
 
 The module automatically selects the appropriate model based on the intent:
   - INTENT_CHECK_MODEL: Used when intent=="intent" (default: "gpt-3.5-turbo")
   - TEXT_GENERATION_MODEL: Used for text generation (default: "gpt-4o")
   - IMAGE_GENERATION_MODEL: Used for image generation (default: "dall-e-3")
+  - VERIFICATION_MODEL: Used for verification questions (default: "gpt-3.5-turbo")
 
 Configuration (such as the OpenAI API key and model names) is loaded from environment variables via python-dotenv.
 All debugging and error information is logged using the standard logging module.
@@ -29,6 +31,9 @@ Example Usage:
 
     # To generate an image:
     image_url = generate_openai_response("A futuristic cityscape at sunset", intent="image")
+
+    # To generate verification questions:
+    questions = generate_openai_response("Generate 3 verification questions", intent="verification")
 """
 
 import json
@@ -45,6 +50,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 IMAGE_GENERATION_MODEL = os.getenv("IMAGE_GENERATION_MODEL", "dall-e-3")
 TEXT_GENERATION_MODEL = os.getenv("TEXT_GENERATION_MODEL", "gpt-4o")
 INTENT_CHECK_MODEL = os.getenv("INTENT_CHECK_MODEL", "gpt-3.5-turbo")
+VERIFICATION_MODEL = os.getenv("VERIFICATION_MODEL", "gpt-3.5-turbo")
 
 # Initialize OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -55,15 +61,17 @@ def generate_openai_response(prompt, intent="text", model=None):
     
     Parameters:
       prompt (str): The user's prompt.
-      intent (str): One of "intent", "text", or "image". Default is "text".
+      intent (str): One of "intent", "text", "image", or "verification". Default is "text".
       model (str): Optional. If not provided, the model is chosen based on the intent:
                    - For "intent": INTENT_CHECK_MODEL
                    - For "image": IMAGE_GENERATION_MODEL
                    - For "text": TEXT_GENERATION_MODEL
+                   - For "verification": VERIFICATION_MODEL
 
     Returns:
       - If intent is "intent": a dict containing the keys "isAllowed" (bool) and "intent" (str).
       - If intent is "image": a string containing the generated image URL.
+      - If intent is "verification": a list of verification questions.
       - Otherwise (intent is "text"): a string containing the generated text.
       - On error, returns an error message (or a default dict for intent check).
     """
@@ -73,6 +81,8 @@ def generate_openai_response(prompt, intent="text", model=None):
                 model = INTENT_CHECK_MODEL
             elif intent == "image":
                 model = IMAGE_GENERATION_MODEL
+            elif intent == "verification":
+                model = VERIFICATION_MODEL
             else:
                 model = TEXT_GENERATION_MODEL
 
@@ -111,12 +121,42 @@ def generate_openai_response(prompt, intent="text", model=None):
             logging.debug(f"Generated image URL: {image_url}")
             return image_url
 
+        elif intent == "verification":
+            # Use the verification prompt from prompts module
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": prompts.verification_prompt},
+                    {"role": "user", "content": "Generate 3 verification questions."}
+                ],
+                temperature=0.7,
+                max_tokens=300
+            )
+            
+            questions_json = response.choices[0].message.content.strip()
+            # Remove markdown formatting if present
+            if questions_json.startswith("```json"):
+                questions_json = questions_json.strip("```json").strip("```").strip()
+            
+            try:
+                questions = json.loads(questions_json)
+                logging.debug(f"Generated verification questions: {questions}")
+                return questions
+            except json.JSONDecodeError as e:
+                logging.error(f"Failed to parse verification questions JSON: {questions_json}. Error: {e}")
+                # Return default questions as fallback
+                return [
+                    {"question": "What is 2+2?", "answer": "4"},
+                    {"question": "What color is the sky?", "answer": "blue"},
+                    {"question": "How many days are in a week?", "answer": "7"}
+                ]
+
         else:  # Default to text generation.
             response = client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": (
-                        "Keep your response concise and under 3500 characters. "
+                        "Keep your response concise and under 2000 characters. "
                         "Ensure the story is complete and doesn't cut off mid-sentence. "
                         "Use bold, tongue-in-cheek edgy, and humorously explicit language to create a provocative, fun, and memorable narrative."
         )},
@@ -134,5 +174,12 @@ def generate_openai_response(prompt, intent="text", model=None):
         logging.error(f"[ERROR] OpenAI API call failed: {e}")
         if intent == "intent":
             return {"isAllowed": False, "intent": "text"}
+        elif intent == "verification":
+            # Return default questions as fallback
+            return [
+                {"question": "What is 2+2?", "answer": "4"},
+                {"question": "What color is the sky?", "answer": "blue"},
+                {"question": "How many days are in a week?", "answer": "7"}
+            ]
         else:
             return "[ERROR] Unable to generate response. Please try again later."

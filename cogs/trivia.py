@@ -23,7 +23,7 @@ class TriviaCog(commands.Cog):
         self.bot = bot
 
     @commands.command(name="trivia")
-    async def trivia(self, ctx, action: str, category: str = None):
+    async def trivia(self, ctx, action: str, category: str = None, speed: str = "slow"):
         guild_id = ctx.guild.id
 
         if action.lower() == "start":
@@ -32,7 +32,7 @@ class TriviaCog(commands.Cog):
                     "❌ You must specify a category to start trivia. Example: `!trivia start History`"
                 )
                 return
-            await trivia_game.start_trivia(ctx, category, self.bot, is_slash=False)
+            await trivia_game.start_trivia(ctx, category, self.bot, is_slash=False, speed=speed)
 
         elif action.lower() == "stop":
             await trivia_game.stop_trivia(ctx, guild_id, self.bot)
@@ -52,12 +52,17 @@ class TriviaCog(commands.Cog):
     @app_commands.command(name="trivia", description="Start or stop a trivia game")
     @app_commands.describe(
         action="Choose to start or stop a trivia game",
-        category="Select a trivia category (required for start, optional for stop)"
+        category="Select a trivia category (required for start, optional for stop)",
+        speed="Choose the pace of the trivia game (slow or fast)"
     )
     @app_commands.choices(action=[
         app_commands.Choice(name="Start", value="start"),
         app_commands.Choice(name="Stop", value="stop"),
         app_commands.Choice(name="Leaderboard", value="leaderboard")
+    ])
+    @app_commands.choices(speed=[
+        app_commands.Choice(name="Slow", value="slow"),
+        app_commands.Choice(name="Fast", value="fast")
     ])
     @app_commands.choices(category=[
         app_commands.Choice(name="History", value="History"),
@@ -79,7 +84,7 @@ class TriviaCog(commands.Cog):
         app_commands.Choice(name="Marvel & DC", value="Comics"),
         app_commands.Choice(name="Holidays & Traditions", value="Holidays")
     ])
-    async def slash_trivia(self, interaction: discord.Interaction, action: str, category: str = None):
+    async def slash_trivia(self, interaction: discord.Interaction, action: str, category: str = None, speed: str = "slow"):
         guild_id = interaction.guild_id
 
         if action == "start":
@@ -88,7 +93,7 @@ class TriviaCog(commands.Cog):
                     "❌ You must specify a category to start trivia. Example: `/trivia start History`",
                     ephemeral=True)
                 return
-            await trivia_game.start_trivia(interaction, category, self.bot, is_slash=True)
+            await trivia_game.start_trivia(interaction, category, self.bot, is_slash=True, speed=speed)
 
         elif action == "stop":
             await trivia_game.stop_trivia(interaction, guild_id, self.bot, is_slash=True)

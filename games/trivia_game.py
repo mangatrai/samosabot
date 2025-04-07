@@ -54,6 +54,11 @@ TRIVIA_START_DELAY = int(os.getenv("TRIVIA_START_DELAY", 30))
 TRIVIA_ANSWER_TIME = int(os.getenv("TRIVIA_ANSWER_TIME", 30))
 TRIVIA_QUESTION_COUNT = int(os.getenv("TRIVIA_QUESTION_COUNT", 10))
 
+# Fast pace settings
+FAST_TRIVIA_START_DELAY = int(os.getenv("FAST_TRIVIA_START_DELAY", 10))
+FAST_TRIVIA_ANSWER_TIME = int(os.getenv("FAST_TRIVIA_ANSWER_TIME", 15))
+FAST_TRIVIA_QUESTION_BREAK_TIME = int(os.getenv("FAST_TRIVIA_QUESTION_BREAK_TIME", 5))
+
 active_trivia_games = {}
 
 async def get_user_display_name(bot, user_id, guild_id):
@@ -188,7 +193,7 @@ class TriviaView(discord.ui.View):
             await asyncio.sleep(5)
 
 # Trivia Logic (Handles Both Prefix & Slash Commands)
-async def start_trivia(source, category: str = "general", bot=None, num_questions: int = TRIVIA_QUESTION_COUNT, is_slash: bool = False):
+async def start_trivia(source, category: str = "general", bot=None, num_questions: int = TRIVIA_QUESTION_COUNT, is_slash: bool = False, speed: str = None):
     guild_id = source.guild.id if isinstance(source, discord.ext.commands.Context) else source.guild_id
     user_name = source.user.display_name if is_slash else source.author.display_name
     
@@ -199,6 +204,18 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
             await source.send("❌ A trivia game is already running in this server. Use `!trivia stop` to end it first.")
         return
 
+    # Set timing based on speed
+    if speed and speed.lower() == "fast":
+        start_delay = FAST_TRIVIA_START_DELAY
+        answer_time = FAST_TRIVIA_ANSWER_TIME
+        question_break_time = FAST_TRIVIA_QUESTION_BREAK_TIME
+        pace_text = "Fast-Paced"
+    else:
+        start_delay = TRIVIA_START_DELAY
+        answer_time = TRIVIA_ANSWER_TIME
+        question_break_time = TRIVIA_QUESTION_BREAK_TIME
+        pace_text = "Slow-Paced"
+
     # Initialize game with state
     active_trivia_games[guild_id] = {
         "questions_asked": 1,
@@ -206,18 +223,22 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
         "scores": {},  # Track correct answers
         "wrong_answers": {},  # Track wrong answers
         "category": category,
-        "state": "initializing"  # Track game state
+        "state": "initializing",  # Track game state
+        "speed": speed,  # Store the speed setting
+        "start_delay": start_delay,  # Store the start delay
+        "answer_time": answer_time,  # Store the answer time
+        "question_break_time": question_break_time  # Store the question break time
     }
 
     if is_slash:
         await source.response.defer()
         await asyncio.sleep(1)
-        await source.followup.send(f"🎉 {user_name} has started a {category} trivia game! First question in {TRIVIA_START_DELAY} seconds...")
+        await source.followup.send(f"🎉 {user_name} has started a {pace_text} {category} trivia game! First question in {start_delay} seconds...")
     else:
-        await source.send(f"🎉 {user_name} has started a {category} trivia game! First question in {TRIVIA_START_DELAY} seconds...")
+        await source.send(f"🎉 {user_name} has started a {pace_text} {category} trivia game! First question in {start_delay} seconds...")
 
     # Split the initial delay into smaller chunks to check for stop command
-    for _ in range(TRIVIA_START_DELAY):
+    for _ in range(start_delay):
         if guild_id not in active_trivia_games:
             return
         await asyncio.sleep(1)
@@ -291,10 +312,10 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
             description=question,
             color=discord.Color.blue()
         )
-        embed.set_footer(text=f"Category: {category} | Time: {TRIVIA_ANSWER_TIME} seconds")
+        embed.set_footer(text=f"Category: {category} | Time: {answer_time} seconds")
 
         # Create view with buttons
-        view = TriviaView(question_data, correct_answer, timeout=TRIVIA_ANSWER_TIME, category=category)
+        view = TriviaView(question_data, correct_answer, timeout=answer_time, category=category)
 
         # Send the question
         if is_slash:
@@ -365,7 +386,7 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
             break
 
         # Split the break time into smaller chunks to check for stop command
-        for _ in range(TRIVIA_QUESTION_BREAK_TIME):
+        for _ in range(question_break_time):
             if guild_id not in active_trivia_games:
                 return
             await asyncio.sleep(1)
