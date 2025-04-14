@@ -14,9 +14,9 @@ verification_prompt = (
     f"   - 'How many days are in a week?' (answer: '7')\n\n"
     f"Return the questions in this exact JSON format:\n"
     f"[\n"
-    f"    {{'question': 'Question 1?', 'answer': 'answer1'}},\n"
-    f"    {{'question': 'Question 2?', 'answer': 'answer2'}},\n"
-    f"    {{'question': 'Question 3?', 'answer': 'answer3'}}\n"
+    f"    {{\"question\": \"Question 1?\", \"answer\": \"answer1\"}},\n"
+    f"    {{\"question\": \"Question 2?\", \"answer\": \"answer2\"}},\n"
+    f"    {{\"question\": \"Question 3?\", \"answer\": \"answer3\"}}\n"
     f"]\n\n"
     f"Here is a random number to force variation: {random_number}. Do not include this number in your response."
 )

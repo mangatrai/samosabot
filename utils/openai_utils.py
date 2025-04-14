@@ -135,6 +135,7 @@ def generate_openai_response(prompt, intent="text", model=None):
             )
             
             questions_json = response.choices[0].message.content.strip()
+            logging.debug(f"[DEBUG] OpenAI Verification Response: {questions_json}")
             # Remove markdown formatting if present
             if questions_json.startswith("```json"):
                 questions_json = questions_json.strip("```json").strip("```").strip()

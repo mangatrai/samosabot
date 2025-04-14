@@ -66,8 +66,13 @@ class VerificationCog(commands.Cog):
     async def send_verification_challenge(self, member: discord.Member):
         """Send a verification challenge to the user."""
         try:
-            # Generate verification questions using OpenAI
-            questions = openai_utils.generate_openai_response("Generate 3 verification questions", intent="verification")
+            # Get stored questions
+            verification_data = self.active_verifications.get(member.id)
+            if not verification_data or "questions" not in verification_data:
+                logging.error(f"No verification questions found for {member.name}")
+                return
+
+            questions = verification_data["questions"]
             
             # Create verification embed for the first question
             embed = discord.Embed(
@@ -82,13 +87,13 @@ class VerificationCog(commands.Cog):
             channel = member.guild.system_channel or member.guild.text_channels[0]
             message = await channel.send(embed=embed)
             
-            self.active_verifications[member.id] = {
-                "questions": questions,
+            # Update verification data
+            verification_data.update({
                 "current_question": 0,
                 "correct_answers": 0,
                 "message_id": message.id,
-                "attempts": 0
-            }
+                "stage": "answering"
+            })
             
             # Log verification start
             astra_db_ops.log_verification_attempt(
@@ -261,6 +266,7 @@ class VerificationCog(commands.Cog):
                 if guest_role:
                     await message.author.add_roles(guest_role)
                     logging.info(f"Assigned Guest role to {message.author.name} ({message.author.id})")
+                    logging.debug(f"[DEBUG] Successfully assigned Guest role {guest_role.name} (ID: {guest_role.id}) to {message.author.name}")
                 else:
                     logging.error(f"Guest role {settings['guest_role_name']} not found in guild {message.guild.name}")
                 
@@ -378,13 +384,18 @@ class VerificationCog(commands.Cog):
             channel = await self.create_temp_verification_channel(member)
             logging.debug(f"[DEBUG] Created verification channel: {channel.name} (ID: {channel.id})")
 
+            # Generate verification questions using OpenAI
+            questions = openai_utils.generate_openai_response("Generate 3 verification questions", intent="verification")
+            logging.debug(f"[DEBUG] Generated verification questions for {member.name}")
+
             # Store verification state
             self.active_verifications[member.id] = {
                 "channel_id": channel.id,
                 "stage": "verification",
                 "attempts": 0,
                 "timestamp": discord.utils.utcnow().timestamp(),
-                "selected_roles": set()
+                "selected_roles": set(),
+                "questions": questions
             }
             logging.debug(f"[DEBUG] Stored verification state for {member.name}")
 
@@ -918,7 +929,21 @@ class VerificationCog(commands.Cog):
                 if guest_role:
                     await member.remove_roles(guest_role)
 
-                # Send approval message
+                # Update the original message
+                embed = discord.Embed(
+                    title="✅ Verification Approved",
+                    description=(
+                        f"Member: {member.mention}\n"
+                        f"Action: Approved by {interaction.user.mention}\n"
+                        f"Time: {discord.utils.format_dt(discord.utils.utcnow(), 'R')}\n\n"
+                        "✅ Guest role removed\n"
+                        "✅ Verified role assigned"
+                    ),
+                    color=discord.Color.green()
+                )
+                await interaction.message.edit(embed=embed, view=None)
+
+                # Send approval message to verification channel
                 channel = interaction.guild.get_channel(verification_data["channel_id"])
                 if channel:
                     embed = discord.Embed(
@@ -946,9 +971,22 @@ class VerificationCog(commands.Cog):
                 )
 
             else:  # deny
-                # Remove guest role
                 if guest_role:
                     await member.remove_roles(guest_role)
+
+                # Update the original message
+                embed = discord.Embed(
+                    title="❌ Verification Denied",
+                    description=(
+                        f"Member: {member.mention}\n"
+                        f"Action: Denied by {interaction.user.mention}\n"
+                        f"Time: {discord.utils.format_dt(discord.utils.utcnow(), 'R')}\n\n"
+                        "❌ Guest role removed\n"
+                        "❌ Member removed from server"
+                    ),
+                    color=discord.Color.red()
+                )
+                await interaction.message.edit(embed=embed, view=None)
 
                 # Send denial message to verification channel
                 channel = interaction.guild.get_channel(verification_data["channel_id"])
