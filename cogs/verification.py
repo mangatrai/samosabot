@@ -118,15 +118,11 @@ class VerificationCog(commands.Cog):
                 )
                 return
 
-            # Generate verification questions
-            questions = openai_utils.generate_openai_response(
-                "Generate 3 verification questions",
-                intent="verification"
-            )
+            # Use existing questions instead of generating new ones
+            questions = verification_data["questions"]
             
             # Update verification data
             verification_data.update({
-                "questions": questions,
                 "current_question": 0,
                 "correct_answers": 0,
                 "stage": "answering"
@@ -257,7 +253,18 @@ class VerificationCog(commands.Cog):
             correct_answers = verification_data["correct_answers"]
 
             if correct_answers >= 2:
-                # Verification successful
+                # Get guild settings for role assignment
+                settings = self.get_guild_settings(message.guild.id)
+                
+                # Assign Guest role first
+                guest_role = discord.utils.get(message.guild.roles, name=settings["guest_role_name"])
+                if guest_role:
+                    await message.author.add_roles(guest_role)
+                    logging.info(f"Assigned Guest role to {message.author.name} ({message.author.id})")
+                else:
+                    logging.error(f"Guest role {settings['guest_role_name']} not found in guild {message.guild.name}")
+                
+                # Update verification stage
                 verification_data["stage"] = "rules"
                 
                 embed = discord.Embed(
@@ -357,12 +364,19 @@ class VerificationCog(commands.Cog):
     async def on_member_join(self, member: discord.Member):
         """Handle new member joins."""
         try:
+            logging.debug(f"[DEBUG] Member joined: {member.name} (ID: {member.id}) in guild: {member.guild.name} (ID: {member.guild.id})")
+            
             settings = self.get_guild_settings(member.guild.id)
+            logging.debug(f"[DEBUG] Guild settings: {settings}")
+            
             if not settings["enabled"]:
+                logging.debug(f"[DEBUG] Verification is disabled for guild: {member.guild.name}")
                 return
 
+            logging.debug(f"[DEBUG] Creating verification channel for {member.name}")
             # Create temporary verification channel
             channel = await self.create_temp_verification_channel(member)
+            logging.debug(f"[DEBUG] Created verification channel: {channel.name} (ID: {channel.id})")
 
             # Store verification state
             self.active_verifications[member.id] = {
@@ -372,6 +386,7 @@ class VerificationCog(commands.Cog):
                 "timestamp": discord.utils.utcnow().timestamp(),
                 "selected_roles": set()
             }
+            logging.debug(f"[DEBUG] Stored verification state for {member.name}")
 
             # Create welcome embed
             embed = discord.Embed(
@@ -399,6 +414,7 @@ class VerificationCog(commands.Cog):
             view.add_item(start_button)
 
             # Send welcome message
+            logging.debug(f"[DEBUG] Sending welcome message to {member.name}")
             await channel.send(embed=embed, view=view)
 
             # Log verification start
@@ -408,14 +424,16 @@ class VerificationCog(commands.Cog):
                 guild_id=member.guild.id,
                 stage="channel_created"
             )
+            logging.debug(f"[DEBUG] Logged verification attempt for {member.name}")
 
         except Exception as e:
-            logging.error(f"Error in on_member_join for {member.name}: {e}")
+            logging.error(f"[ERROR] Error in on_member_join for {member.name}: {e}")
             # Try to send a DM to the user if channel creation failed
             try:
                 await member.send("There was an error setting up your verification. Please contact a server admin.")
-            except:
-                pass
+                logging.debug(f"[DEBUG] Sent error DM to {member.name}")
+            except Exception as dm_error:
+                logging.error(f"[ERROR] Failed to send DM to {member.name}: {dm_error}")
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -485,7 +503,7 @@ class VerificationCog(commands.Cog):
             ]
 
             # Create view with role buttons
-            view = RoleSelectionView(available_roles, member)
+            view = RoleSelectionView(self, member, roles_channel.id)
 
             # Send role selection message
             message = await roles_channel.send(embed=embed, view=view)
@@ -737,56 +755,57 @@ class VerificationCog(commands.Cog):
             )
 
     async def handle_role_selection_complete(self, interaction: discord.Interaction):
-        """Handle when a user completes role selection."""
+        """Handle completion of role selection."""
         try:
-            if interaction.user.id not in self.active_verifications:
-                await interaction.response.send_message(
-                    "❌ No active verification session found.",
-                    ephemeral=True
-                )
-                return
-
-            verification_data = self.active_verifications[interaction.user.id]
-            if verification_data["channel_id"] != interaction.channel.id:
-                await interaction.response.send_message(
-                    "❌ Please use your verification channel.",
-                    ephemeral=True
-                )
-                return
-
-            if verification_data["stage"] != "roles":
-                await interaction.response.send_message(
-                    "❌ Please complete previous steps first.",
-                    ephemeral=True
-                )
-                return
-
-            # Get selected roles
-            member = interaction.guild.get_member(interaction.user.id)
-            selected_roles = [
-                role.name for role in member.roles
-                if not role.is_default() and role.name != "Guest"
+            # Get guild settings
+            settings = self.get_guild_settings(interaction.guild.id)
+            
+            # Get user's roles excluding @everyone and guest role
+            guest_role_name = settings["guest_role_name"]
+            user_roles = [
+                role.name for role in interaction.user.roles 
+                if role.name != "@everyone" and role.name != guest_role_name
             ]
-
-            if not selected_roles:
+            
+            if not user_roles:
                 await interaction.response.send_message(
-                    "❌ Please select at least one role before proceeding.",
+                    "❌ Please select at least one role in the #roles channel before proceeding.",
                     ephemeral=True
                 )
                 return
-
-            # Update verification data
-            verification_data["stage"] = "admin_review"
-            verification_data["selected_roles"] = selected_roles
-            verification_data["roles_timestamp"] = discord.utils.utcnow().timestamp()
-
-            # Create admin review embed
-            settings = self.get_guild_settings(interaction.guild_id)
+            
+            # Update verification state
+            verification_data = self.active_verifications[interaction.user.id]
+            verification_data["selected_roles"] = set(user_roles)
+            verification_data["stage"] = "roles_selected"
+            
+            # Show selected roles in temp channel
+            embed = discord.Embed(
+                title="✅ Roles Selected!",
+                description=(
+                    "Great! You've selected the following roles:\n\n"
+                    f"{', '.join(user_roles)}\n\n"
+                    "An admin will review your verification shortly."
+                ),
+                color=discord.Color.green()
+            )
+            
+            await interaction.response.edit_message(embed=embed, view=None)
+            
+            # Log role selection
+            astra_db_ops.log_verification_attempt(
+                user_id=interaction.user.id,
+                username=interaction.user.name,
+                guild_id=interaction.guild.id,
+                stage="roles_selected",
+                success=True
+            )
+            
+            # Notify admins with approve/deny buttons
             admin_channel = discord.utils.get(
                 interaction.guild.channels,
                 name=settings["admin_channel_name"]
             )
-
             if admin_channel:
                 review_embed = discord.Embed(
                     title="👋 New Member Review",
@@ -794,7 +813,7 @@ class VerificationCog(commands.Cog):
                         f"**User:** {interaction.user.mention}\n"
                         f"**Joined:** <t:{int(verification_data['timestamp'])}:R>\n"
                         f"**Rules Acknowledged:** <t:{int(verification_data['rules_timestamp'])}:R>\n"
-                        f"**Selected Roles:**\n" + "\n".join(f"• {role}" for role in selected_roles)
+                        f"**Selected Roles:**\n" + "\n".join(f"• {role}" for role in user_roles)
                     ),
                     color=discord.Color.blue()
                 )
@@ -815,39 +834,31 @@ class VerificationCog(commands.Cog):
                 review_view.add_item(deny_button)
 
                 await admin_channel.send(embed=review_embed, view=review_view)
-
-            # Update user's message
-            user_embed = discord.Embed(
-                title="✅ Setup Complete!",
-                description=(
-                    "Thank you for completing the setup process!\n\n"
-                    "Your selected roles have been submitted for admin review.\n"
-                    "You'll receive access to the server once an admin approves."
-                ),
-                color=discord.Color.green()
-            )
-
-            await interaction.response.edit_message(embed=user_embed, view=None)
-
-            # Log completion
-            astra_db_ops.log_verification_attempt(
-                user_id=interaction.user.id,
-                username=interaction.user.name,
-                guild_id=interaction.guild_id,
-                stage="awaiting_approval"
-            )
-
+                
+                # Log awaiting approval
+                astra_db_ops.log_verification_attempt(
+                    user_id=interaction.user.id,
+                    username=interaction.user.name,
+                    guild_id=interaction.guild.id,
+                    stage="awaiting_approval",
+                    success=True
+                )
+            
         except Exception as e:
             logging.error(f"Error handling role selection completion: {e}")
             await interaction.response.send_message(
-                "❌ An error occurred. Please try again or contact an admin.",
+                "❌ An error occurred while processing your role selection.",
                 ephemeral=True
             )
 
     async def handle_admin_decision(self, interaction: discord.Interaction):
         """Handle admin's approval or denial of a new member."""
         try:
-            if not self.is_admin(interaction):
+            # Check if the user has admin permissions
+            is_owner = interaction.user.id == interaction.guild.owner_id
+            has_admin = interaction.user.guild_permissions.administrator
+            
+            if not (is_owner or has_admin):
                 await interaction.response.send_message(
                     "❌ You need administrator permissions to use this command.",
                     ephemeral=True
@@ -855,7 +866,15 @@ class VerificationCog(commands.Cog):
                 return
 
             # Extract user ID and decision from custom_id
-            action, user_id = interaction.custom_id.split('_')
+            custom_id = interaction.data.get('custom_id')
+            if not custom_id:
+                await interaction.response.send_message(
+                    "❌ Invalid interaction data.",
+                    ephemeral=True
+                )
+                return
+                
+            action, user_id = custom_id.split('_')
             user_id = int(user_id)
             
             if user_id not in self.active_verifications:
@@ -876,16 +895,21 @@ class VerificationCog(commands.Cog):
                 del self.active_verifications[user_id]
                 return
 
+            # Acknowledge the interaction first
+            await interaction.response.defer()
+
+            # Get roles
+            settings = self.get_guild_settings(interaction.guild_id)
+            guest_role = discord.utils.get(
+                interaction.guild.roles,
+                name=settings["guest_role_name"]
+            )
+
             if action == "approve":
-                # Get roles
-                settings = self.get_guild_settings(interaction.guild_id)
+                # Get verified role
                 verified_role = discord.utils.get(
                     interaction.guild.roles,
                     name=settings["verified_role_name"]
-                )
-                guest_role = discord.utils.get(
-                    interaction.guild.roles,
-                    name=settings["guest_role_name"]
                 )
 
                 # Apply roles
@@ -922,7 +946,11 @@ class VerificationCog(commands.Cog):
                 )
 
             else:  # deny
-                # Send denial message
+                # Remove guest role
+                if guest_role:
+                    await member.remove_roles(guest_role)
+
+                # Send denial message to verification channel
                 channel = interaction.guild.get_channel(verification_data["channel_id"])
                 if channel:
                     embed = discord.Embed(
@@ -934,6 +962,19 @@ class VerificationCog(commands.Cog):
                         color=discord.Color.red()
                     )
                     await channel.send(embed=embed)
+                    
+                    # Schedule channel deletion
+                    await asyncio.sleep(60)
+                    await channel.delete()
+
+                # Send DM to user
+                try:
+                    await member.send(
+                        "❌ Your verification request has been denied by an administrator.\n"
+                        "Please contact the server staff for more information."
+                    )
+                except Exception as dm_error:
+                    logging.error(f"Failed to send denial DM to {member.name}: {dm_error}")
 
                 # Log denial
                 astra_db_ops.log_verification_attempt(
@@ -950,58 +991,182 @@ class VerificationCog(commands.Cog):
 
         except Exception as e:
             logging.error(f"Error handling admin decision: {e}")
-            await interaction.response.send_message(
-                "❌ An error occurred while processing the decision.",
-                ephemeral=True
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "❌ An error occurred while processing the decision.",
+                    ephemeral=True
+                )
+
+    async def create_temp_verification_channel(self, member: discord.Member) -> discord.TextChannel:
+        """Create a temporary verification channel for a new member."""
+        try:
+            # Get or create the verification category
+            category = discord.utils.get(member.guild.categories, name="Verification")
+            if not category:
+                category = await member.guild.create_category("Verification")
+
+            # Create base overwrites denying access to everyone
+            overwrites = {
+                member.guild.default_role: discord.PermissionOverwrite(read_messages=False),
+                member.guild.me: discord.PermissionOverwrite(
+                    read_messages=True,
+                    send_messages=True,
+                    manage_channels=True,
+                    read_message_history=True,
+                    view_channel=True,
+                    embed_links=True,
+                    add_reactions=True
+                )
+            }
+
+            # Deny access to all roles
+            for role in member.guild.roles:
+                if not role.is_default():
+                    overwrites[role] = discord.PermissionOverwrite(read_messages=False)
+
+            # Allow access to the specific member with all necessary permissions
+            overwrites[member] = discord.PermissionOverwrite(
+                read_messages=True,
+                send_messages=True,
+                read_message_history=True,
+                view_channel=True,
+                embed_links=True,
+                add_reactions=True
             )
+
+            # Create the channel
+            try:
+                channel = await member.guild.create_text_channel(
+                    name=f"verify-{member.name}",
+                    category=category,
+                    overwrites=overwrites
+                )
+            except Exception as e:
+                logging.error(f"[ERROR] Failed to create channel: {e}")
+                logging.error(f"[ERROR] Bot permissions: {member.guild.me.guild_permissions}")
+                raise
+
+            # Set channel to be deleted after 24 hours
+            await channel.edit(topic="This channel will be deleted after 24 hours of inactivity.")
+            
+            return channel
+
+        except Exception as e:
+            logging.error(f"[ERROR] Channel creation failed: {e}")
+            raise
 
 class RoleSelectionView(discord.ui.View):
-    def __init__(self, available_roles: list, member: discord.Member):
-        super().__init__(timeout=None)
+    def __init__(self, cog, member: discord.Member, roles_channel_id: int):
+        super().__init__(timeout=300)
+        self.cog = cog
         self.member = member
-        self.available_roles = available_roles
+        self.roles_channel_id = roles_channel_id
         
-        # Create buttons for each role
-        for role_name in available_roles:
-            button = discord.ui.Button(
-                label=role_name,
-                style=discord.ButtonStyle.primary,
-                custom_id=f"role_{role_name}"
-            )
-            button.callback = lambda interaction, r=role_name: self.role_callback(interaction, r)
-            self.add_item(button)
+        # Add done button
+        done_button = discord.ui.Button(
+            label="Done Selecting Roles",
+            style=discord.ButtonStyle.primary,
+            custom_id="done_selecting_roles"
+        )
+        done_button.callback = self.cog.handle_role_selection_complete
+        self.add_item(done_button)
 
-    async def role_callback(self, interaction: discord.Interaction, role_name: str):
-        """Handle role selection button clicks."""
-        if interaction.user.id != self.member.id:
-            await interaction.response.send_message("This role selection is not for you!", ephemeral=True)
-            return
-
+    async def handle_role_selection_complete(self, interaction: discord.Interaction):
+        """Handle completion of role selection."""
         try:
-            # Get or create the role
-            role = discord.utils.get(interaction.guild.roles, name=role_name)
-            if not role:
-                role = await interaction.guild.create_role(name=role_name)
-
-            # Toggle the role
-            if role in self.member.roles:
-                await self.member.remove_roles(role)
-                await interaction.response.send_message(f"Removed role: {role_name}", ephemeral=True)
-            else:
-                await self.member.add_roles(role)
-                await interaction.response.send_message(f"Added role: {role_name}", ephemeral=True)
-
-            # Log role change
-            astra_db_ops.log_role_change(
-                user_id=self.member.id,
-                username=self.member.name,
-                guild_id=interaction.guild_id,
-                role_name=role_name,
-                action="add" if role in self.member.roles else "remove"
+            # Get guild settings
+            settings = self.cog.get_guild_settings(interaction.guild.id)
+            
+            # Get user's roles excluding @everyone and guest role
+            guest_role_name = settings["guest_role_name"]
+            user_roles = [
+                role.name for role in interaction.user.roles 
+                if role.name != "@everyone" and role.name != guest_role_name
+            ]
+            
+            if not user_roles:
+                await interaction.response.send_message(
+                    "❌ Please select at least one role in the #roles channel before proceeding.",
+                    ephemeral=True
+                )
+                return
+            
+            # Update verification state
+            verification_data = self.cog.active_verifications[interaction.user.id]
+            verification_data["selected_roles"] = set(user_roles)
+            verification_data["stage"] = "roles_selected"
+            
+            # Show selected roles in temp channel
+            embed = discord.Embed(
+                title="✅ Roles Selected!",
+                description=(
+                    "Great! You've selected the following roles:\n\n"
+                    f"{', '.join(user_roles)}\n\n"
+                    "An admin will review your verification shortly."
+                ),
+                color=discord.Color.green()
             )
+            
+            await interaction.response.edit_message(embed=embed, view=None)
+            
+            # Log role selection
+            astra_db_ops.log_verification_attempt(
+                user_id=interaction.user.id,
+                username=interaction.user.name,
+                guild_id=interaction.guild.id,
+                stage="roles_selected",
+                success=True
+            )
+            
+            # Notify admins with approve/deny buttons
+            admin_channel = discord.utils.get(
+                interaction.guild.channels,
+                name=settings["admin_channel_name"]
+            )
+            if admin_channel:
+                review_embed = discord.Embed(
+                    title="👋 New Member Review",
+                    description=(
+                        f"**User:** {interaction.user.mention}\n"
+                        f"**Joined:** <t:{int(verification_data['timestamp'])}:R>\n"
+                        f"**Rules Acknowledged:** <t:{int(verification_data['rules_timestamp'])}:R>\n"
+                        f"**Selected Roles:**\n" + "\n".join(f"• {role}" for role in user_roles)
+                    ),
+                    color=discord.Color.blue()
+                )
+
+                # Create approve/deny buttons
+                review_view = discord.ui.View()
+                approve_button = discord.ui.Button(
+                    label="Approve",
+                    style=discord.ButtonStyle.success,
+                    custom_id=f"approve_{interaction.user.id}"
+                )
+                deny_button = discord.ui.Button(
+                    label="Deny",
+                    style=discord.ButtonStyle.danger,
+                    custom_id=f"deny_{interaction.user.id}"
+                )
+                review_view.add_item(approve_button)
+                review_view.add_item(deny_button)
+
+                await admin_channel.send(embed=review_embed, view=review_view)
+                
+                # Log awaiting approval
+                astra_db_ops.log_verification_attempt(
+                    user_id=interaction.user.id,
+                    username=interaction.user.name,
+                    guild_id=interaction.guild.id,
+                    stage="awaiting_approval",
+                    success=True
+                )
+            
         except Exception as e:
-            logging.error(f"Error handling role selection for {self.member.name}: {e}")
-            await interaction.response.send_message("An error occurred while updating your roles.", ephemeral=True)
+            logging.error(f"Error handling role selection: {e}")
+            await interaction.response.send_message(
+                "❌ An error occurred. Please try again or contact an admin.",
+                ephemeral=True
+            )
 
 class SetupWizardView(discord.ui.View):
     def __init__(self, cog, interaction: discord.Interaction):
@@ -1072,7 +1237,7 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        if self.current_step < 6:  # Total number of steps
+        if self.current_step < 7:  # Total number of steps
             self.current_step += 1
             await interaction.response.edit_message(view=self)
             await self.show_current_step()
@@ -1117,6 +1282,8 @@ class SetupWizardView(discord.ui.View):
                 settings_summary += f"👤 Guest Role: {self.settings['guest_role_name']}\n"
             if "verified_role_name" in self.settings:
                 settings_summary += f"✅ Verified Role: {self.settings['verified_role_name']}\n"
+            if "admin_role_name" in self.settings:
+                settings_summary += f"👑 Admin Role: {self.settings['admin_role_name']}\n"
             if "rules_channel_name" in self.settings:
                 settings_summary += f"📜 Rules Channel: {self.settings['rules_channel_name']}\n"
             if "roles_channel_name" in self.settings:
@@ -1162,7 +1329,19 @@ class SetupWizardView(discord.ui.View):
                 self.add_item(self.next_step)
             elif self.current_step == 3:
                 embed.description = (
-                    "**Step 3: Rules Channel Setup**\n\n"
+                    "**Step 3: Admin Role Setup**\n\n"
+                    "Now, let's set up the Admin role that will be used for verification approvals.\n"
+                    "You can either:\n"
+                    "1. Select an existing role\n"
+                    "2. Create a new role"
+                )
+                self.add_item(self.select_admin_role)
+                self.add_item(self.create_admin_role)
+                self.add_item(self.back_step)
+                self.add_item(self.next_step)
+            elif self.current_step == 4:
+                embed.description = (
+                    "**Step 4: Rules Channel Setup**\n\n"
                     "Let's set up the channel for server rules.\n"
                     "You can either:\n"
                     "1. Select an existing channel\n"
@@ -1172,9 +1351,9 @@ class SetupWizardView(discord.ui.View):
                 self.add_item(self.create_rules_channel)
                 self.add_item(self.back_step)
                 self.add_item(self.next_step)
-            elif self.current_step == 4:
+            elif self.current_step == 5:
                 embed.description = (
-                    "**Step 4: Roles Channel Setup**\n\n"
+                    "**Step 5: Roles Channel Setup**\n\n"
                     "Now, let's set up the channel for role selection.\n"
                     "You can either:\n"
                     "1. Select an existing channel\n"
@@ -1184,9 +1363,9 @@ class SetupWizardView(discord.ui.View):
                 self.add_item(self.create_roles_channel)
                 self.add_item(self.back_step)
                 self.add_item(self.next_step)
-            elif self.current_step == 5:
+            elif self.current_step == 6:
                 embed.description = (
-                    "**Step 5: Admin Channel Setup**\n\n"
+                    "**Step 6: Admin Channel Setup**\n\n"
                     "Let's set up the channel for admin approvals.\n"
                     "You can either:\n"
                     "1. Select an existing channel\n"
@@ -1196,9 +1375,9 @@ class SetupWizardView(discord.ui.View):
                 self.add_item(self.create_admin_channel)
                 self.add_item(self.back_step)
                 self.add_item(self.next_step)
-            elif self.current_step == 6:
+            elif self.current_step == 7:
                 embed.description = (
-                    "**Step 6: Review and Enable**\n\n"
+                    "**Step 7: Review and Enable**\n\n"
                     "Please review your settings below. If everything looks correct, "
                     "click 'Enable Verification' to complete the setup."
                 )
@@ -1661,6 +1840,7 @@ class SetupWizardView(discord.ui.View):
             settings_summary = (
                 f"👤 Guest Role: {self.settings.get('guest_role_name', 'Guest')}\n"
                 f"✅ Verified Role: {self.settings.get('verified_role_name', 'Verified')}\n"
+                f"👑 Admin Role: {self.settings.get('admin_role_name', 'Staff')}\n"
                 f"📜 Rules Channel: {self.settings.get('rules_channel_name', 'rules')}\n"
                 f"🎭 Roles Channel: {self.settings.get('roles_channel_name', 'roles')}\n"
                 f"⚠️ Admin Channel: {self.settings.get('admin_channel_name', 'admin')}"
@@ -1681,13 +1861,15 @@ class SetupWizardView(discord.ui.View):
             return "guest_role_name" in self.settings
         elif step == 2:  # Verified Role
             return "verified_role_name" in self.settings
-        elif step == 3:  # Rules Channel
+        elif step == 3:  # Admin Role
+            return "admin_role_name" in self.settings
+        elif step == 4:  # Rules Channel
             return "rules_channel_name" in self.settings
-        elif step == 4:  # Roles Channel
+        elif step == 5:  # Roles Channel
             return "roles_channel_name" in self.settings
-        elif step == 5:  # Admin Channel
+        elif step == 6:  # Admin Channel
             return "admin_channel_name" in self.settings
-        elif step == 6:  # Enable Verification
+        elif step == 7:  # Enable Verification
             return True  # This step is completed by clicking the button
         return False
 
@@ -1707,6 +1889,7 @@ class SetupWizardView(discord.ui.View):
             settings_summary = (
                 f"👤 Guest Role: {self.settings.get('guest_role_name', 'Guest')}\n"
                 f"✅ Verified Role: {self.settings.get('verified_role_name', 'Verified')}\n"
+                f"👑 Admin Role: {self.settings.get('admin_role_name', 'Staff')}\n"
                 f"📜 Rules Channel: {self.settings.get('rules_channel_name', 'rules')}\n"
                 f"🎭 Roles Channel: {self.settings.get('roles_channel_name', 'roles')}\n"
                 f"⚠️ Admin Channel: {self.settings.get('admin_channel_name', 'admin')}"
@@ -1720,6 +1903,90 @@ class SetupWizardView(discord.ui.View):
             
         except Exception as e:
             await interaction.response.send_message(f"❌ Error completing setup: {e}", ephemeral=True)
+
+    @discord.ui.button(label="Select Admin Role", style=discord.ButtonStyle.primary)
+    async def select_admin_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.is_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+            return
+
+        # Get available roles
+        available_roles = [
+            role for role in interaction.guild.roles
+            if len(role.name) <= 25 and not role.is_default()
+        ]
+
+        if not available_roles:
+            await interaction.response.send_message(
+                "❌ No roles available. Please create a role first.",
+                ephemeral=True
+            )
+            return
+
+        select = discord.ui.Select(
+            placeholder="Choose an existing Admin role",
+            options=[
+                discord.SelectOption(
+                    label=role.name,
+                    value=str(role.id),
+                    description=f"Select {role.name} as Admin role"
+                )
+                for role in available_roles
+            ]
+        )
+        select.callback = self.handle_admin_role_selection
+        
+        # Update view with select menu
+        self.clear_items()
+        self.add_item(select)
+        self.selection_active = True
+        self.current_select = "admin_role"
+
+        # Add a cancel button
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        cancel_button.callback = self.cancel_selection
+        self.add_item(cancel_button)
+        
+        await interaction.response.edit_message(view=self)
+
+    async def handle_admin_role_selection(self, interaction: discord.Interaction):
+        if not self.is_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+            return
+
+        role_id = int(interaction.data["values"][0])
+        role = interaction.guild.get_role(role_id)
+        if role:
+            self.settings["admin_role_name"] = role.name
+            self.selection_active = False
+            self.current_select = None
+            await self.show_current_step()
+            await interaction.response.edit_message(view=self)
+        else:
+            await interaction.response.send_message("❌ Selected role not found.", ephemeral=True)
+
+    @discord.ui.button(label="Create Admin Role", style=discord.ButtonStyle.primary)
+    async def create_admin_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.is_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+            return
+
+        try:
+            settings = self.get_guild_settings(interaction.guild_id)
+            role = await interaction.guild.create_role(name=settings["admin_role_name"])
+            self.settings["admin_role_name"] = role.name
+            await interaction.response.send_message(f"✅ Created Admin role: {role.mention}", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Error creating Admin role: {e}", ephemeral=True)
 
 async def setup(bot):
     """Add the cog to the bot."""

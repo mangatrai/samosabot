@@ -114,19 +114,6 @@ def get_verification_attempts_collection():
         logging.error(f"Failed to retrieve verification_attempts collection: {e}")
         return None
 
-def get_role_changes_collection():
-    """Get the role_changes collection."""
-    database = get_db_connection()
-    if database is None:
-        return None
-    try:
-        collection = database.get_collection("role_changes")
-        logging.debug(f"Retrieved role_changes collection: {collection.info().name}")
-        return collection
-    except Exception as e:
-        logging.error(f"Failed to retrieve role_changes collection: {e}")
-        return None
-
 def get_guild_verification_settings_collection():
     """Get the guild_verification_settings collection."""
     database = get_db_connection()
@@ -437,33 +424,6 @@ def log_verification_attempt(
     except Exception as e:
         logging.error(f"Error logging verification attempt: {e}")
 
-def log_role_change(
-    user_id: str,
-    username: str,
-    guild_id: str,
-    role_name: str,
-    action: str
-):
-    """Log a role change event."""
-    try:
-        collection = get_role_changes_collection()
-        if collection is None:
-            return
-
-        document = {
-            "user_id": str(user_id),
-            "username": username,
-            "guild_id": str(guild_id),
-            "role_name": role_name,
-            "action": action,
-            "timestamp": datetime.datetime.utcnow().isoformat()
-        }
-        
-        collection.insert_one(document)
-        logging.debug(f"Logged role change for {username}: {action} {role_name}")
-    except Exception as e:
-        logging.error(f"Error logging role change: {e}")
-
 def get_verification_history(user_id: str, guild_id: str):
     """Get verification history for a user in a specific guild."""
     try:
@@ -479,23 +439,6 @@ def get_verification_history(user_id: str, guild_id: str):
         return list(results)
     except Exception as e:
         logging.error(f"Error getting verification history: {e}")
-        return []
-
-def get_role_history(user_id: str, guild_id: str):
-    """Get role change history for a user in a specific guild."""
-    try:
-        collection = get_role_changes_collection()
-        if collection is None:
-            return []
-
-        results = collection.find({
-            "user_id": str(user_id),
-            "guild_id": str(guild_id)
-        }, sort={"timestamp": -1})
-        
-        return list(results)
-    except Exception as e:
-        logging.error(f"Error getting role history: {e}")
         return []
 
 def get_guild_verification_settings(guild_id: int) -> dict:

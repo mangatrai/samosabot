@@ -123,11 +123,12 @@ def generate_openai_response(prompt, intent="text", model=None):
 
         elif intent == "verification":
             # Use the verification prompt from prompts module
+            logging.debug(f"About to Generate verification questions from OpenAI. Verification Prompt: {prompts.verification_prompt}")
             response = client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": prompts.verification_prompt},
-                    {"role": "user", "content": "Generate 3 verification questions."}
+                    {"role": "user", "content": "Generate 3 verification questions as per the system prompt instructions."}
                 ],
                 temperature=0.7,
                 max_tokens=300

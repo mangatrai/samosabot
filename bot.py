@@ -44,9 +44,10 @@ EXTENSIONS = os.getenv("EXTENSIONS", "").split(",")
 
 # Intents & Bot Setup
 intents = discord.Intents.default()
+intents.members = True  # Enable member intents
 intents.messages = True
 intents.guilds = True
-intents.message_content = True  # Ensure message content intent is enabled
+intents.message_content = True  # Enable message content intent
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 tree = bot.tree
 
