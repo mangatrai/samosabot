@@ -1066,23 +1066,16 @@ class VerificationCog(commands.Cog):
                     view_channel=True,
                     embed_links=True,
                     add_reactions=True
+                ),
+                member: discord.PermissionOverwrite(
+                    read_messages=True,
+                    send_messages=True,
+                    read_message_history=True,
+                    view_channel=True,
+                    embed_links=True,
+                    add_reactions=True
                 )
             }
-
-            # Deny access to all roles
-            for role in member.guild.roles:
-                if not role.is_default():
-                    overwrites[role] = discord.PermissionOverwrite(read_messages=False)
-
-            # Allow access to the specific member with all necessary permissions
-            overwrites[member] = discord.PermissionOverwrite(
-                read_messages=True,
-                send_messages=True,
-                read_message_history=True,
-                view_channel=True,
-                embed_links=True,
-                add_reactions=True
-            )
 
             # Create the channel
             try:
