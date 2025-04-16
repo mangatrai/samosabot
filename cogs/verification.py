@@ -14,7 +14,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import logging
-from typing import Dict, Set, List, Optional
+from typing import Dict, Set, List, Optional, Tuple
 from utils import astra_db_ops, openai_utils
 import asyncio
 
@@ -24,6 +24,11 @@ class VerificationCog(commands.Cog):
         self.active_verifications: Dict[int, Dict] = {}  # user_id -> verification data
         self.rules_messages: Dict[int, int] = {}  # guild_id -> message_id
         self.role_selections: Dict[int, Dict] = {}  # user_id -> selection data
+        
+        # Pagination state
+        self.pagination_state: Dict[int, Dict] = {}  # interaction_id -> pagination data
+        self.ROLES_PER_PAGE = 25
+        
         logging.info("VerificationCog initialized")
 
     async def cog_load(self):
@@ -1093,6 +1098,48 @@ class VerificationCog(commands.Cog):
             logging.error(f"[ERROR] Channel creation failed: {e}")
             raise
 
+    def _sort_roles(self, roles: List[discord.Role], role_type: str) -> List[discord.Role]:
+        """Sort roles based on their type and importance."""
+        # Sort by position (higher position = more important)
+        sorted_roles = sorted(roles, key=lambda r: r.position, reverse=True)
+        
+        if role_type == "guest":
+            # For guest roles, sort by importance (high to low)
+            return sorted_roles
+        elif role_type == "verified":
+            # For verified roles, sort by privilege (low to high)
+            return sorted_roles[::-1]
+        elif role_type == "admin":
+            # For admin roles, sort by privilege (high to low)
+            return sorted_roles
+        return sorted_roles
+
+    def _get_paginated_roles(self, roles: List[discord.Role], page: int, role_type: str) -> Tuple[List[discord.Role], bool]:
+        """Get a page of roles and whether there are more pages."""
+        sorted_roles = self._sort_roles(roles, role_type)
+        start_idx = (page - 1) * self.ROLES_PER_PAGE
+        end_idx = start_idx + self.ROLES_PER_PAGE
+        return sorted_roles[start_idx:end_idx], end_idx < len(sorted_roles)
+
+    def _get_paginated_channels(self, channels: List[discord.TextChannel], page: int) -> Tuple[List[discord.TextChannel], bool]:
+        """Get a page of channels and whether there are more pages."""
+        start_idx = (page - 1) * self.ROLES_PER_PAGE
+        end_idx = start_idx + self.ROLES_PER_PAGE
+        return channels[start_idx:end_idx], end_idx < len(channels)
+
+    def _update_pagination_state(self, interaction_id: int, data: Dict):
+        """Update pagination state for an interaction."""
+        self.pagination_state[interaction_id] = data
+
+    def _get_pagination_state(self, interaction_id: int) -> Optional[Dict]:
+        """Get pagination state for an interaction."""
+        return self.pagination_state.get(interaction_id)
+
+    def _clear_pagination_state(self, interaction_id: int):
+        """Clear pagination state for an interaction."""
+        if interaction_id in self.pagination_state:
+            del self.pagination_state[interaction_id]
+
 class RoleSelectionView(discord.ui.View):
     def __init__(self, cog, member: discord.Member, roles_channel_id: int):
         super().__init__(timeout=300)
@@ -1446,6 +1493,9 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
+        # Get first page of roles
+        page_roles, has_more = self.cog._get_paginated_roles(available_roles, 1, "guest")
+
         # Create select menu
         select = discord.ui.Select(
             placeholder="Choose an existing Guest role",
@@ -1455,7 +1505,7 @@ class SetupWizardView(discord.ui.View):
                     value=str(role.id),
                     description=f"Select {role.name} as Guest role"
                 )
-                for role in available_roles
+                for role in page_roles
             ]
         )
         select.callback = self.handle_guest_role_selection
@@ -1466,10 +1516,23 @@ class SetupWizardView(discord.ui.View):
         self.selection_active = True
         self.current_select = "guest_role"
 
+        # Add navigation buttons if there are more pages
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_guest_role_next_page
+            self.add_item(next_button)
+
         # Add a cancel button
         cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
         cancel_button.callback = self.cancel_selection
         self.add_item(cancel_button)
+
+        # Store pagination state
+        self.cog._update_pagination_state(interaction.id, {
+            "current_page": 1,
+            "role_type": "guest",
+            "roles": available_roles
+        })
 
         await interaction.response.edit_message(view=self)
 
@@ -1492,7 +1555,7 @@ class SetupWizardView(discord.ui.View):
         else:
             await interaction.response.send_message("❌ Selected role not found.", ephemeral=True)
 
-    async def cancel_selection(self, interaction: discord.Interaction):
+    async def handle_guest_role_next_page(self, interaction: discord.Interaction):
         if not self.is_admin(interaction):
             await interaction.response.send_message(
                 "❌ You need administrator permissions to use this command.",
@@ -1500,9 +1563,134 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        self.selection_active = False
-        self.current_select = None
-        await self.show_current_step()
+        # Get current pagination state
+        pagination_state = self.cog._get_pagination_state(interaction.id)
+        if not pagination_state:
+            await interaction.response.send_message(
+                "❌ Pagination state not found. Please try again.",
+                ephemeral=True
+            )
+            return
+
+        # Get next page
+        current_page = pagination_state["current_page"] + 1
+        page_roles, has_more = self.cog._get_paginated_roles(
+            pagination_state["roles"],
+            current_page,
+            pagination_state["role_type"]
+        )
+
+        # Create select menu
+        select = discord.ui.Select(
+            placeholder="Choose an existing Guest role",
+            options=[
+                discord.SelectOption(
+                    label=role.name,
+                    value=str(role.id),
+                    description=f"Select {role.name} as Guest role"
+                )
+                for role in page_roles
+            ]
+        )
+        select.callback = self.handle_guest_role_selection
+
+        # Update view with select menu
+        self.clear_items()
+        self.add_item(select)
+        self.selection_active = True
+        self.current_select = "guest_role"
+
+        # Add navigation buttons
+        if current_page > 1:
+            prev_button = discord.ui.Button(label="Previous Page", style=discord.ButtonStyle.secondary)
+            prev_button.callback = self.handle_guest_role_prev_page
+            self.add_item(prev_button)
+
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_guest_role_next_page
+            self.add_item(next_button)
+
+        # Add a cancel button
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        cancel_button.callback = self.cancel_selection
+        self.add_item(cancel_button)
+
+        # Update pagination state
+        self.cog._update_pagination_state(interaction.id, {
+            **pagination_state,
+            "current_page": current_page
+        })
+
+        await interaction.response.edit_message(view=self)
+
+    async def handle_guest_role_prev_page(self, interaction: discord.Interaction):
+        if not self.is_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+            return
+
+        # Get current pagination state
+        pagination_state = self.cog._get_pagination_state(interaction.id)
+        if not pagination_state:
+            await interaction.response.send_message(
+                "❌ Pagination state not found. Please try again.",
+                ephemeral=True
+            )
+            return
+
+        # Get previous page
+        current_page = pagination_state["current_page"] - 1
+        page_roles, has_more = self.cog._get_paginated_roles(
+            pagination_state["roles"],
+            current_page,
+            pagination_state["role_type"]
+        )
+
+        # Create select menu
+        select = discord.ui.Select(
+            placeholder="Choose an existing Guest role",
+            options=[
+                discord.SelectOption(
+                    label=role.name,
+                    value=str(role.id),
+                    description=f"Select {role.name} as Guest role"
+                )
+                for role in page_roles
+            ]
+        )
+        select.callback = self.handle_guest_role_selection
+
+        # Update view with select menu
+        self.clear_items()
+        self.add_item(select)
+        self.selection_active = True
+        self.current_select = "guest_role"
+
+        # Add navigation buttons
+        if current_page > 1:
+            prev_button = discord.ui.Button(label="Previous Page", style=discord.ButtonStyle.secondary)
+            prev_button.callback = self.handle_guest_role_prev_page
+            self.add_item(prev_button)
+
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_guest_role_next_page
+            self.add_item(next_button)
+
+        # Add a cancel button
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        cancel_button.callback = self.cancel_selection
+        self.add_item(cancel_button)
+
+        # Update pagination state
+        self.cog._update_pagination_state(interaction.id, {
+            **pagination_state,
+            "current_page": current_page
+        })
+
         await interaction.response.edit_message(view=self)
 
     @discord.ui.button(label="Select Verified Role", style=discord.ButtonStyle.primary)
@@ -1527,6 +1715,10 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
+        # Get first page of roles
+        page_roles, has_more = self.cog._get_paginated_roles(available_roles, 1, "verified")
+
+        # Create select menu
         select = discord.ui.Select(
             placeholder="Choose an existing Verified role",
             options=[
@@ -1535,25 +1727,38 @@ class SetupWizardView(discord.ui.View):
                     value=str(role.id),
                     description=f"Select {role.name} as Verified role"
                 )
-                for role in available_roles
+                for role in page_roles
             ]
         )
         select.callback = self.handle_verified_role_selection
-        
+
         # Update view with select menu
         self.clear_items()
         self.add_item(select)
         self.selection_active = True
         self.current_select = "verified_role"
 
+        # Add navigation buttons if there are more pages
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_verified_role_next_page
+            self.add_item(next_button)
+
         # Add a cancel button
         cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
         cancel_button.callback = self.cancel_selection
         self.add_item(cancel_button)
-        
+
+        # Store pagination state
+        self.cog._update_pagination_state(interaction.id, {
+            "current_page": 1,
+            "role_type": "verified",
+            "roles": available_roles
+        })
+
         await interaction.response.edit_message(view=self)
 
-    async def handle_verified_role_selection(self, interaction: discord.Interaction):
+    async def handle_verified_role_next_page(self, interaction: discord.Interaction):
         if not self.is_admin(interaction):
             await interaction.response.send_message(
                 "❌ You need administrator permissions to use this command.",
@@ -1561,16 +1766,135 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        role_id = int(interaction.data["values"][0])
-        role = interaction.guild.get_role(role_id)
-        if role:
-            self.settings["verified_role_name"] = role.name
-            self.selection_active = False
-            self.current_select = None
-            await self.show_current_step()
-            await interaction.response.edit_message(view=self)
-        else:
-            await interaction.response.send_message("❌ Selected role not found.", ephemeral=True)
+        # Get current pagination state
+        pagination_state = self.cog._get_pagination_state(interaction.id)
+        if not pagination_state:
+            await interaction.response.send_message(
+                "❌ Pagination state not found. Please try again.",
+                ephemeral=True
+            )
+            return
+
+        # Get next page
+        current_page = pagination_state["current_page"] + 1
+        page_roles, has_more = self.cog._get_paginated_roles(
+            pagination_state["roles"],
+            current_page,
+            pagination_state["role_type"]
+        )
+
+        # Create select menu
+        select = discord.ui.Select(
+            placeholder="Choose an existing Verified role",
+            options=[
+                discord.SelectOption(
+                    label=role.name,
+                    value=str(role.id),
+                    description=f"Select {role.name} as Verified role"
+                )
+                for role in page_roles
+            ]
+        )
+        select.callback = self.handle_verified_role_selection
+
+        # Update view with select menu
+        self.clear_items()
+        self.add_item(select)
+        self.selection_active = True
+        self.current_select = "verified_role"
+
+        # Add navigation buttons
+        if current_page > 1:
+            prev_button = discord.ui.Button(label="Previous Page", style=discord.ButtonStyle.secondary)
+            prev_button.callback = self.handle_verified_role_prev_page
+            self.add_item(prev_button)
+
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_verified_role_next_page
+            self.add_item(next_button)
+
+        # Add a cancel button
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        cancel_button.callback = self.cancel_selection
+        self.add_item(cancel_button)
+
+        # Update pagination state
+        self.cog._update_pagination_state(interaction.id, {
+            **pagination_state,
+            "current_page": current_page
+        })
+
+        await interaction.response.edit_message(view=self)
+
+    async def handle_verified_role_prev_page(self, interaction: discord.Interaction):
+        if not self.is_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+            return
+
+        # Get current pagination state
+        pagination_state = self.cog._get_pagination_state(interaction.id)
+        if not pagination_state:
+            await interaction.response.send_message(
+                "❌ Pagination state not found. Please try again.",
+                ephemeral=True
+            )
+            return
+
+        # Get previous page
+        current_page = pagination_state["current_page"] - 1
+        page_roles, has_more = self.cog._get_paginated_roles(
+            pagination_state["roles"],
+            current_page,
+            pagination_state["role_type"]
+        )
+
+        # Create select menu
+        select = discord.ui.Select(
+            placeholder="Choose an existing Verified role",
+            options=[
+                discord.SelectOption(
+                    label=role.name,
+                    value=str(role.id),
+                    description=f"Select {role.name} as Verified role"
+                )
+                for role in page_roles
+            ]
+        )
+        select.callback = self.handle_verified_role_selection
+
+        # Update view with select menu
+        self.clear_items()
+        self.add_item(select)
+        self.selection_active = True
+        self.current_select = "verified_role"
+
+        # Add navigation buttons
+        if current_page > 1:
+            prev_button = discord.ui.Button(label="Previous Page", style=discord.ButtonStyle.secondary)
+            prev_button.callback = self.handle_verified_role_prev_page
+            self.add_item(prev_button)
+
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_verified_role_next_page
+            self.add_item(next_button)
+
+        # Add a cancel button
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        cancel_button.callback = self.cancel_selection
+        self.add_item(cancel_button)
+
+        # Update pagination state
+        self.cog._update_pagination_state(interaction.id, {
+            **pagination_state,
+            "current_page": current_page
+        })
+
+        await interaction.response.edit_message(view=self)
 
     @discord.ui.button(label="Select Rules Channel", style=discord.ButtonStyle.primary)
     async def select_rules_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1591,6 +1915,10 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
+        # Get first page of channels
+        page_channels, has_more = self.cog._get_paginated_channels(text_channels, 1)
+
+        # Create select menu
         select = discord.ui.Select(
             placeholder="Choose an existing rules channel",
             options=[
@@ -1599,7 +1927,7 @@ class SetupWizardView(discord.ui.View):
                     value=str(channel.id),
                     description=f"Select {channel.name} as rules channel"
                 )
-                for channel in text_channels[:25]  # Discord limits to 25 options
+                for channel in page_channels
             ]
         )
         select.callback = self.handle_rules_channel_selection
@@ -1610,14 +1938,26 @@ class SetupWizardView(discord.ui.View):
         self.selection_active = True
         self.current_select = "rules_channel"
 
+        # Add navigation buttons if there are more pages
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_rules_channel_next_page
+            self.add_item(next_button)
+
         # Add a cancel button
         cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
         cancel_button.callback = self.cancel_selection
         self.add_item(cancel_button)
-        
+
+        # Store pagination state
+        self.cog._update_pagination_state(interaction.id, {
+            "current_page": 1,
+            "channels": text_channels
+        })
+
         await interaction.response.edit_message(view=self)
 
-    async def handle_rules_channel_selection(self, interaction: discord.Interaction):
+    async def handle_rules_channel_next_page(self, interaction: discord.Interaction):
         if not self.is_admin(interaction):
             await interaction.response.send_message(
                 "❌ You need administrator permissions to use this command.",
@@ -1625,16 +1965,133 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        channel_id = int(interaction.data["values"][0])
-        channel = interaction.guild.get_channel(channel_id)
-        if channel:
-            self.settings["rules_channel_name"] = channel.name
-            self.selection_active = False
-            self.current_select = None
-            await self.show_current_step()
-            await interaction.response.edit_message(view=self)
-        else:
-            await interaction.response.send_message("❌ Selected channel not found.", ephemeral=True)
+        # Get current pagination state
+        pagination_state = self.cog._get_pagination_state(interaction.id)
+        if not pagination_state:
+            await interaction.response.send_message(
+                "❌ Pagination state not found. Please try again.",
+                ephemeral=True
+            )
+            return
+
+        # Get next page
+        current_page = pagination_state["current_page"] + 1
+        page_channels, has_more = self.cog._get_paginated_channels(
+            pagination_state["channels"],
+            current_page
+        )
+
+        # Create select menu
+        select = discord.ui.Select(
+            placeholder="Choose an existing rules channel",
+            options=[
+                discord.SelectOption(
+                    label=channel.name,
+                    value=str(channel.id),
+                    description=f"Select {channel.name} as rules channel"
+                )
+                for channel in page_channels
+            ]
+        )
+        select.callback = self.handle_rules_channel_selection
+
+        # Update view with select menu
+        self.clear_items()
+        self.add_item(select)
+        self.selection_active = True
+        self.current_select = "rules_channel"
+
+        # Add navigation buttons
+        if current_page > 1:
+            prev_button = discord.ui.Button(label="Previous Page", style=discord.ButtonStyle.secondary)
+            prev_button.callback = self.handle_rules_channel_prev_page
+            self.add_item(prev_button)
+
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_rules_channel_next_page
+            self.add_item(next_button)
+
+        # Add a cancel button
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        cancel_button.callback = self.cancel_selection
+        self.add_item(cancel_button)
+
+        # Update pagination state
+        self.cog._update_pagination_state(interaction.id, {
+            **pagination_state,
+            "current_page": current_page
+        })
+
+        await interaction.response.edit_message(view=self)
+
+    async def handle_rules_channel_prev_page(self, interaction: discord.Interaction):
+        if not self.is_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+            return
+
+        # Get current pagination state
+        pagination_state = self.cog._get_pagination_state(interaction.id)
+        if not pagination_state:
+            await interaction.response.send_message(
+                "❌ Pagination state not found. Please try again.",
+                ephemeral=True
+            )
+            return
+
+        # Get previous page
+        current_page = pagination_state["current_page"] - 1
+        page_channels, has_more = self.cog._get_paginated_channels(
+            pagination_state["channels"],
+            current_page
+        )
+
+        # Create select menu
+        select = discord.ui.Select(
+            placeholder="Choose an existing rules channel",
+            options=[
+                discord.SelectOption(
+                    label=channel.name,
+                    value=str(channel.id),
+                    description=f"Select {channel.name} as rules channel"
+                )
+                for channel in page_channels
+            ]
+        )
+        select.callback = self.handle_rules_channel_selection
+
+        # Update view with select menu
+        self.clear_items()
+        self.add_item(select)
+        self.selection_active = True
+        self.current_select = "rules_channel"
+
+        # Add navigation buttons
+        if current_page > 1:
+            prev_button = discord.ui.Button(label="Previous Page", style=discord.ButtonStyle.secondary)
+            prev_button.callback = self.handle_rules_channel_prev_page
+            self.add_item(prev_button)
+
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_rules_channel_next_page
+            self.add_item(next_button)
+
+        # Add a cancel button
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        cancel_button.callback = self.cancel_selection
+        self.add_item(cancel_button)
+
+        # Update pagination state
+        self.cog._update_pagination_state(interaction.id, {
+            **pagination_state,
+            "current_page": current_page
+        })
+
+        await interaction.response.edit_message(view=self)
 
     @discord.ui.button(label="Select Roles Channel", style=discord.ButtonStyle.primary)
     async def select_roles_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1655,6 +2112,10 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
+        # Get first page of channels
+        page_channels, has_more = self.cog._get_paginated_channels(text_channels, 1)
+
+        # Create select menu
         select = discord.ui.Select(
             placeholder="Choose an existing roles channel",
             options=[
@@ -1663,7 +2124,7 @@ class SetupWizardView(discord.ui.View):
                     value=str(channel.id),
                     description=f"Select {channel.name} as roles channel"
                 )
-                for channel in text_channels[:25]  # Discord limits to 25 options
+                for channel in page_channels
             ]
         )
         select.callback = self.handle_roles_channel_selection
@@ -1674,14 +2135,26 @@ class SetupWizardView(discord.ui.View):
         self.selection_active = True
         self.current_select = "roles_channel"
 
+        # Add navigation buttons if there are more pages
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_roles_channel_next_page
+            self.add_item(next_button)
+
         # Add a cancel button
         cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
         cancel_button.callback = self.cancel_selection
         self.add_item(cancel_button)
-        
+
+        # Store pagination state
+        self.cog._update_pagination_state(interaction.id, {
+            "current_page": 1,
+            "channels": text_channels
+        })
+
         await interaction.response.edit_message(view=self)
 
-    async def handle_roles_channel_selection(self, interaction: discord.Interaction):
+    async def handle_roles_channel_next_page(self, interaction: discord.Interaction):
         if not self.is_admin(interaction):
             await interaction.response.send_message(
                 "❌ You need administrator permissions to use this command.",
@@ -1689,16 +2162,133 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        channel_id = int(interaction.data["values"][0])
-        channel = interaction.guild.get_channel(channel_id)
-        if channel:
-            self.settings["roles_channel_name"] = channel.name
-            self.selection_active = False
-            self.current_select = None
-            await self.show_current_step()
-            await interaction.response.edit_message(view=self)
-        else:
-            await interaction.response.send_message("❌ Selected channel not found.", ephemeral=True)
+        # Get current pagination state
+        pagination_state = self.cog._get_pagination_state(interaction.id)
+        if not pagination_state:
+            await interaction.response.send_message(
+                "❌ Pagination state not found. Please try again.",
+                ephemeral=True
+            )
+            return
+
+        # Get next page
+        current_page = pagination_state["current_page"] + 1
+        page_channels, has_more = self.cog._get_paginated_channels(
+            pagination_state["channels"],
+            current_page
+        )
+
+        # Create select menu
+        select = discord.ui.Select(
+            placeholder="Choose an existing roles channel",
+            options=[
+                discord.SelectOption(
+                    label=channel.name,
+                    value=str(channel.id),
+                    description=f"Select {channel.name} as roles channel"
+                )
+                for channel in page_channels
+            ]
+        )
+        select.callback = self.handle_roles_channel_selection
+
+        # Update view with select menu
+        self.clear_items()
+        self.add_item(select)
+        self.selection_active = True
+        self.current_select = "roles_channel"
+
+        # Add navigation buttons
+        if current_page > 1:
+            prev_button = discord.ui.Button(label="Previous Page", style=discord.ButtonStyle.secondary)
+            prev_button.callback = self.handle_roles_channel_prev_page
+            self.add_item(prev_button)
+
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_roles_channel_next_page
+            self.add_item(next_button)
+
+        # Add a cancel button
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        cancel_button.callback = self.cancel_selection
+        self.add_item(cancel_button)
+
+        # Update pagination state
+        self.cog._update_pagination_state(interaction.id, {
+            **pagination_state,
+            "current_page": current_page
+        })
+
+        await interaction.response.edit_message(view=self)
+
+    async def handle_roles_channel_prev_page(self, interaction: discord.Interaction):
+        if not self.is_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+            return
+
+        # Get current pagination state
+        pagination_state = self.cog._get_pagination_state(interaction.id)
+        if not pagination_state:
+            await interaction.response.send_message(
+                "❌ Pagination state not found. Please try again.",
+                ephemeral=True
+            )
+            return
+
+        # Get previous page
+        current_page = pagination_state["current_page"] - 1
+        page_channels, has_more = self.cog._get_paginated_channels(
+            pagination_state["channels"],
+            current_page
+        )
+
+        # Create select menu
+        select = discord.ui.Select(
+            placeholder="Choose an existing roles channel",
+            options=[
+                discord.SelectOption(
+                    label=channel.name,
+                    value=str(channel.id),
+                    description=f"Select {channel.name} as roles channel"
+                )
+                for channel in page_channels
+            ]
+        )
+        select.callback = self.handle_roles_channel_selection
+
+        # Update view with select menu
+        self.clear_items()
+        self.add_item(select)
+        self.selection_active = True
+        self.current_select = "roles_channel"
+
+        # Add navigation buttons
+        if current_page > 1:
+            prev_button = discord.ui.Button(label="Previous Page", style=discord.ButtonStyle.secondary)
+            prev_button.callback = self.handle_roles_channel_prev_page
+            self.add_item(prev_button)
+
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_roles_channel_next_page
+            self.add_item(next_button)
+
+        # Add a cancel button
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        cancel_button.callback = self.cancel_selection
+        self.add_item(cancel_button)
+
+        # Update pagination state
+        self.cog._update_pagination_state(interaction.id, {
+            **pagination_state,
+            "current_page": current_page
+        })
+
+        await interaction.response.edit_message(view=self)
 
     @discord.ui.button(label="Select Admin Channel", style=discord.ButtonStyle.primary)
     async def select_admin_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1719,6 +2309,10 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
+        # Get first page of channels
+        page_channels, has_more = self.cog._get_paginated_channels(text_channels, 1)
+
+        # Create select menu
         select = discord.ui.Select(
             placeholder="Choose an existing admin channel",
             options=[
@@ -1727,7 +2321,7 @@ class SetupWizardView(discord.ui.View):
                     value=str(channel.id),
                     description=f"Select {channel.name} as admin channel"
                 )
-                for channel in text_channels[:25]  # Discord limits to 25 options
+                for channel in page_channels
             ]
         )
         select.callback = self.handle_admin_channel_selection
@@ -1738,14 +2332,26 @@ class SetupWizardView(discord.ui.View):
         self.selection_active = True
         self.current_select = "admin_channel"
 
+        # Add navigation buttons if there are more pages
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_admin_channel_next_page
+            self.add_item(next_button)
+
         # Add a cancel button
         cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
         cancel_button.callback = self.cancel_selection
         self.add_item(cancel_button)
-        
+
+        # Store pagination state
+        self.cog._update_pagination_state(interaction.id, {
+            "current_page": 1,
+            "channels": text_channels
+        })
+
         await interaction.response.edit_message(view=self)
 
-    async def handle_admin_channel_selection(self, interaction: discord.Interaction):
+    async def handle_admin_channel_next_page(self, interaction: discord.Interaction):
         if not self.is_admin(interaction):
             await interaction.response.send_message(
                 "❌ You need administrator permissions to use this command.",
@@ -1753,16 +2359,133 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        channel_id = int(interaction.data["values"][0])
-        channel = interaction.guild.get_channel(channel_id)
-        if channel:
-            self.settings["admin_channel_name"] = channel.name
-            self.selection_active = False
-            self.current_select = None
-            await self.show_current_step()
-            await interaction.response.edit_message(view=self)
-        else:
-            await interaction.response.send_message("❌ Selected channel not found.", ephemeral=True)
+        # Get current pagination state
+        pagination_state = self.cog._get_pagination_state(interaction.id)
+        if not pagination_state:
+            await interaction.response.send_message(
+                "❌ Pagination state not found. Please try again.",
+                ephemeral=True
+            )
+            return
+
+        # Get next page
+        current_page = pagination_state["current_page"] + 1
+        page_channels, has_more = self.cog._get_paginated_channels(
+            pagination_state["channels"],
+            current_page
+        )
+
+        # Create select menu
+        select = discord.ui.Select(
+            placeholder="Choose an existing admin channel",
+            options=[
+                discord.SelectOption(
+                    label=channel.name,
+                    value=str(channel.id),
+                    description=f"Select {channel.name} as admin channel"
+                )
+                for channel in page_channels
+            ]
+        )
+        select.callback = self.handle_admin_channel_selection
+
+        # Update view with select menu
+        self.clear_items()
+        self.add_item(select)
+        self.selection_active = True
+        self.current_select = "admin_channel"
+
+        # Add navigation buttons
+        if current_page > 1:
+            prev_button = discord.ui.Button(label="Previous Page", style=discord.ButtonStyle.secondary)
+            prev_button.callback = self.handle_admin_channel_prev_page
+            self.add_item(prev_button)
+
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_admin_channel_next_page
+            self.add_item(next_button)
+
+        # Add a cancel button
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        cancel_button.callback = self.cancel_selection
+        self.add_item(cancel_button)
+
+        # Update pagination state
+        self.cog._update_pagination_state(interaction.id, {
+            **pagination_state,
+            "current_page": current_page
+        })
+
+        await interaction.response.edit_message(view=self)
+
+    async def handle_admin_channel_prev_page(self, interaction: discord.Interaction):
+        if not self.is_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+            return
+
+        # Get current pagination state
+        pagination_state = self.cog._get_pagination_state(interaction.id)
+        if not pagination_state:
+            await interaction.response.send_message(
+                "❌ Pagination state not found. Please try again.",
+                ephemeral=True
+            )
+            return
+
+        # Get previous page
+        current_page = pagination_state["current_page"] - 1
+        page_channels, has_more = self.cog._get_paginated_channels(
+            pagination_state["channels"],
+            current_page
+        )
+
+        # Create select menu
+        select = discord.ui.Select(
+            placeholder="Choose an existing admin channel",
+            options=[
+                discord.SelectOption(
+                    label=channel.name,
+                    value=str(channel.id),
+                    description=f"Select {channel.name} as admin channel"
+                )
+                for channel in page_channels
+            ]
+        )
+        select.callback = self.handle_admin_channel_selection
+
+        # Update view with select menu
+        self.clear_items()
+        self.add_item(select)
+        self.selection_active = True
+        self.current_select = "admin_channel"
+
+        # Add navigation buttons
+        if current_page > 1:
+            prev_button = discord.ui.Button(label="Previous Page", style=discord.ButtonStyle.secondary)
+            prev_button.callback = self.handle_admin_channel_prev_page
+            self.add_item(prev_button)
+
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_admin_channel_next_page
+            self.add_item(next_button)
+
+        # Add a cancel button
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        cancel_button.callback = self.cancel_selection
+        self.add_item(cancel_button)
+
+        # Update pagination state
+        self.cog._update_pagination_state(interaction.id, {
+            **pagination_state,
+            "current_page": current_page
+        })
+
+        await interaction.response.edit_message(view=self)
 
     @discord.ui.button(label="Create Guest Role", style=discord.ButtonStyle.primary)
     async def create_guest_role(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2025,6 +2748,97 @@ class SetupWizardView(discord.ui.View):
             await interaction.response.send_message(f"✅ Created Admin role: {role.mention}", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message(f"❌ Error creating Admin role: {e}", ephemeral=True)
+
+    async def cancel_selection(self, interaction: discord.Interaction):
+        if not self.is_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+            return
+
+        self.selection_active = False
+        self.current_select = None
+        # Clear pagination state
+        self.cog._clear_pagination_state(interaction.id)
+        await self.show_current_step()
+        await interaction.response.edit_message(view=self)
+
+    async def handle_verified_role_selection(self, interaction: discord.Interaction):
+        if not self.is_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+            return
+
+        role_id = int(interaction.data["values"][0])
+        role = interaction.guild.get_role(role_id)
+        if role:
+            self.settings["verified_role_name"] = role.name
+            self.selection_active = False
+            self.current_select = None
+            await self.show_current_step()
+            await interaction.response.edit_message(view=self)
+        else:
+            await interaction.response.send_message("❌ Selected role not found.", ephemeral=True)
+
+    async def handle_rules_channel_selection(self, interaction: discord.Interaction):
+        if not self.is_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+            return
+
+        channel_id = int(interaction.data["values"][0])
+        channel = interaction.guild.get_channel(channel_id)
+        if channel:
+            self.settings["rules_channel_name"] = channel.name
+            self.selection_active = False
+            self.current_select = None
+            await self.show_current_step()
+            await interaction.response.edit_message(view=self)
+        else:
+            await interaction.response.send_message("❌ Selected channel not found.", ephemeral=True)
+
+    async def handle_roles_channel_selection(self, interaction: discord.Interaction):
+        if not self.is_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+            return
+
+        channel_id = int(interaction.data["values"][0])
+        channel = interaction.guild.get_channel(channel_id)
+        if channel:
+            self.settings["roles_channel_name"] = channel.name
+            self.selection_active = False
+            self.current_select = None
+            await self.show_current_step()
+            await interaction.response.edit_message(view=self)
+        else:
+            await interaction.response.send_message("❌ Selected channel not found.", ephemeral=True)
+
+    async def handle_admin_channel_selection(self, interaction: discord.Interaction):
+        if not self.is_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+            return
+
+        channel_id = int(interaction.data["values"][0])
+        channel = interaction.guild.get_channel(channel_id)
+        if channel:
+            self.settings["admin_channel_name"] = channel.name
+            self.selection_active = False
+            self.current_select = None
+            await self.show_current_step()
+            await interaction.response.edit_message(view=self)
+        else:
+            await interaction.response.send_message("❌ Selected channel not found.", ephemeral=True)
 
 async def setup(bot):
     """Add the cog to the bot."""
