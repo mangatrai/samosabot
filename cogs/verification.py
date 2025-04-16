@@ -377,8 +377,12 @@ class VerificationCog(commands.Cog):
         try:
             logging.debug(f"[DEBUG] Member joined: {member.name} (ID: {member.id}) in guild: {member.guild.name} (ID: {member.guild.id})")
             
+            # Notify admins immediately
             settings = self.get_guild_settings(member.guild.id)
             logging.debug(f"[DEBUG] Guild settings: {settings}")
+            admin_channel = discord.utils.get(member.guild.channels, name=settings["admin_channel_name"])
+            if admin_channel:
+                await admin_channel.send(f"👋 {member.mention} has joined and is going through the verification process.")
             
             if not settings["enabled"]:
                 logging.debug(f"[DEBUG] Verification is disabled for guild: {member.guild.name}")
