@@ -1000,8 +1000,7 @@ class VerificationCog(commands.Cog):
                         f"Member: {member.mention}\n"
                         f"Action: Denied by {interaction.user.mention}\n"
                         f"Time: {discord.utils.format_dt(discord.utils.utcnow(), 'R')}\n\n"
-                        "❌ Guest role removed\n"
-                        "❌ Member removed from server"
+                        "❌ Guest role removed"
                     ),
                     color=discord.Color.red()
                 )
