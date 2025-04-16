@@ -784,6 +784,9 @@ class VerificationCog(commands.Cog):
     async def handle_role_selection_complete(self, interaction: discord.Interaction):
         """Handle completion of role selection."""
         try:
+            # Defer the interaction first
+            await interaction.response.defer()
+            
             # Get guild settings
             settings = self.get_guild_settings(interaction.guild.id)
             
@@ -795,7 +798,7 @@ class VerificationCog(commands.Cog):
             ]
             
             if not user_roles:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ Please select at least one role in the #roles channel before proceeding.",
                     ephemeral=True
                 )
@@ -817,7 +820,7 @@ class VerificationCog(commands.Cog):
                 color=discord.Color.green()
             )
             
-            await interaction.response.edit_message(embed=embed, view=None)
+            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=None)
             
             # Log role selection
             astra_db_ops.log_verification_attempt(
@@ -1163,6 +1166,9 @@ class RoleSelectionView(discord.ui.View):
     async def handle_role_selection_complete(self, interaction: discord.Interaction):
         """Handle completion of role selection."""
         try:
+            # Defer the interaction first
+            await interaction.response.defer()
+            
             # Get guild settings
             settings = self.cog.get_guild_settings(interaction.guild.id)
             
@@ -1174,7 +1180,7 @@ class RoleSelectionView(discord.ui.View):
             ]
             
             if not user_roles:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ Please select at least one role in the #roles channel before proceeding.",
                     ephemeral=True
                 )
@@ -1196,7 +1202,7 @@ class RoleSelectionView(discord.ui.View):
                 color=discord.Color.green()
             )
             
-            await interaction.response.edit_message(embed=embed, view=None)
+            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=None)
             
             # Log role selection
             astra_db_ops.log_verification_attempt(
