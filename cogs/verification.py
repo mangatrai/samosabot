@@ -2598,10 +2598,11 @@ class SetupWizardView(discord.ui.View):
             return
 
         try:
-            # First save all settings to the database
-            astra_db_ops.update_guild_verification_settings(interaction.guild_id, self.settings)
+            # Acknowledge the interaction first
+            await interaction.response.defer()
             
-            # Then enable verification
+            # Then do the database operations
+            astra_db_ops.update_guild_verification_settings(interaction.guild_id, self.settings)
             astra_db_ops.toggle_guild_verification(interaction.guild_id, True)
             
             # Create completion embed
@@ -2625,10 +2626,11 @@ class SetupWizardView(discord.ui.View):
             # Clear all buttons
             self.clear_items()
             
-            await interaction.response.edit_message(embed=embed, view=self)
+            # Use followup to send the final message
+            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
             
         except Exception as e:
-            await interaction.response.send_message(f"❌ Error completing setup: {e}", ephemeral=True)
+            await interaction.followup.send(f"❌ Error completing setup: {e}", ephemeral=True)
 
     def is_step_completed(self, step: int) -> bool:
         """Check if the current step has been completed."""
