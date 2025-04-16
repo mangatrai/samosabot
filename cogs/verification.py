@@ -696,10 +696,17 @@ class VerificationCog(commands.Cog):
 
         except Exception as e:
             logging.error(f"Error starting setup wizard: {e}")
-            await interaction.response.send_message(
-                "❌ An error occurred while starting the setup wizard.",
-                ephemeral=True
-            )
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    "❌ An error occurred while starting the setup wizard.",
+                    ephemeral=True
+                )
+            else:
+                # If the interaction was already responded to, send a followup
+                await interaction.followup.send(
+                    "❌ An error occurred while starting the setup wizard.",
+                    ephemeral=True
+                )
 
     async def handle_rules_acknowledgment(self, interaction: discord.Interaction):
         """Handle when a user acknowledges reading the rules."""
@@ -1527,33 +1534,15 @@ class SetupWizardView(discord.ui.View):
         cancel_button.callback = self.cancel_selection
         self.add_item(cancel_button)
 
-        # Store pagination state
-        self.cog._update_pagination_state(interaction.id, {
+        # Store pagination state using user ID
+        self.cog._update_pagination_state(interaction.user.id, {
             "current_page": 1,
             "role_type": "guest",
-            "roles": available_roles
+            "roles": available_roles,
+            "message_id": interaction.message.id
         })
 
         await interaction.response.edit_message(view=self)
-
-    async def handle_guest_role_selection(self, interaction: discord.Interaction):
-        if not self.is_admin(interaction):
-            await interaction.response.send_message(
-                "❌ You need administrator permissions to use this command.",
-                ephemeral=True
-            )
-            return
-
-        role_id = int(interaction.data["values"][0])
-        role = interaction.guild.get_role(role_id)
-        if role:
-            self.settings["guest_role_name"] = role.name
-            self.selection_active = False
-            self.current_select = None
-            await self.show_current_step()
-            await interaction.response.edit_message(view=self)
-        else:
-            await interaction.response.send_message("❌ Selected role not found.", ephemeral=True)
 
     async def handle_guest_role_next_page(self, interaction: discord.Interaction):
         if not self.is_admin(interaction):
@@ -1563,8 +1552,8 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        # Get current pagination state
-        pagination_state = self.cog._get_pagination_state(interaction.id)
+        # Get current pagination state using user ID
+        pagination_state = self.cog._get_pagination_state(interaction.user.id)
         if not pagination_state:
             await interaction.response.send_message(
                 "❌ Pagination state not found. Please try again.",
@@ -1617,7 +1606,7 @@ class SetupWizardView(discord.ui.View):
         self.add_item(cancel_button)
 
         # Update pagination state
-        self.cog._update_pagination_state(interaction.id, {
+        self.cog._update_pagination_state(interaction.user.id, {
             **pagination_state,
             "current_page": current_page
         })
@@ -1632,8 +1621,8 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        # Get current pagination state
-        pagination_state = self.cog._get_pagination_state(interaction.id)
+        # Get current pagination state using user ID
+        pagination_state = self.cog._get_pagination_state(interaction.user.id)
         if not pagination_state:
             await interaction.response.send_message(
                 "❌ Pagination state not found. Please try again.",
@@ -1686,12 +1675,33 @@ class SetupWizardView(discord.ui.View):
         self.add_item(cancel_button)
 
         # Update pagination state
-        self.cog._update_pagination_state(interaction.id, {
+        self.cog._update_pagination_state(interaction.user.id, {
             **pagination_state,
             "current_page": current_page
         })
 
         await interaction.response.edit_message(view=self)
+
+    async def handle_guest_role_selection(self, interaction: discord.Interaction):
+        if not self.is_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+            return
+
+        role_id = int(interaction.data["values"][0])
+        role = interaction.guild.get_role(role_id)
+        if role:
+            self.settings["guest_role_name"] = role.name
+            self.selection_active = False
+            self.current_select = None
+            # Clear pagination state
+            self.cog._clear_pagination_state(interaction.user.id)
+            await self.show_current_step()
+            await interaction.response.edit_message(view=self)
+        else:
+            await interaction.response.send_message("❌ Selected role not found.", ephemeral=True)
 
     @discord.ui.button(label="Select Verified Role", style=discord.ButtonStyle.primary)
     async def select_verified_role(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1749,11 +1759,12 @@ class SetupWizardView(discord.ui.View):
         cancel_button.callback = self.cancel_selection
         self.add_item(cancel_button)
 
-        # Store pagination state
-        self.cog._update_pagination_state(interaction.id, {
+        # Store pagination state using user ID
+        self.cog._update_pagination_state(interaction.user.id, {
             "current_page": 1,
             "role_type": "verified",
-            "roles": available_roles
+            "roles": available_roles,
+            "message_id": interaction.message.id
         })
 
         await interaction.response.edit_message(view=self)
@@ -1766,8 +1777,8 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        # Get current pagination state
-        pagination_state = self.cog._get_pagination_state(interaction.id)
+        # Get current pagination state using user ID
+        pagination_state = self.cog._get_pagination_state(interaction.user.id)
         if not pagination_state:
             await interaction.response.send_message(
                 "❌ Pagination state not found. Please try again.",
@@ -1820,7 +1831,7 @@ class SetupWizardView(discord.ui.View):
         self.add_item(cancel_button)
 
         # Update pagination state
-        self.cog._update_pagination_state(interaction.id, {
+        self.cog._update_pagination_state(interaction.user.id, {
             **pagination_state,
             "current_page": current_page
         })
@@ -1835,8 +1846,8 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        # Get current pagination state
-        pagination_state = self.cog._get_pagination_state(interaction.id)
+        # Get current pagination state using user ID
+        pagination_state = self.cog._get_pagination_state(interaction.user.id)
         if not pagination_state:
             await interaction.response.send_message(
                 "❌ Pagination state not found. Please try again.",
@@ -1889,7 +1900,7 @@ class SetupWizardView(discord.ui.View):
         self.add_item(cancel_button)
 
         # Update pagination state
-        self.cog._update_pagination_state(interaction.id, {
+        self.cog._update_pagination_state(interaction.user.id, {
             **pagination_state,
             "current_page": current_page
         })
@@ -1949,10 +1960,11 @@ class SetupWizardView(discord.ui.View):
         cancel_button.callback = self.cancel_selection
         self.add_item(cancel_button)
 
-        # Store pagination state
-        self.cog._update_pagination_state(interaction.id, {
+        # Store pagination state using user ID
+        self.cog._update_pagination_state(interaction.user.id, {
             "current_page": 1,
-            "channels": text_channels
+            "channels": text_channels,
+            "message_id": interaction.message.id
         })
 
         await interaction.response.edit_message(view=self)
@@ -1965,8 +1977,8 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        # Get current pagination state
-        pagination_state = self.cog._get_pagination_state(interaction.id)
+        # Get current pagination state using user ID
+        pagination_state = self.cog._get_pagination_state(interaction.user.id)
         if not pagination_state:
             await interaction.response.send_message(
                 "❌ Pagination state not found. Please try again.",
@@ -2018,7 +2030,7 @@ class SetupWizardView(discord.ui.View):
         self.add_item(cancel_button)
 
         # Update pagination state
-        self.cog._update_pagination_state(interaction.id, {
+        self.cog._update_pagination_state(interaction.user.id, {
             **pagination_state,
             "current_page": current_page
         })
@@ -2033,8 +2045,8 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        # Get current pagination state
-        pagination_state = self.cog._get_pagination_state(interaction.id)
+        # Get current pagination state using user ID
+        pagination_state = self.cog._get_pagination_state(interaction.user.id)
         if not pagination_state:
             await interaction.response.send_message(
                 "❌ Pagination state not found. Please try again.",
@@ -2086,7 +2098,7 @@ class SetupWizardView(discord.ui.View):
         self.add_item(cancel_button)
 
         # Update pagination state
-        self.cog._update_pagination_state(interaction.id, {
+        self.cog._update_pagination_state(interaction.user.id, {
             **pagination_state,
             "current_page": current_page
         })
@@ -2146,10 +2158,11 @@ class SetupWizardView(discord.ui.View):
         cancel_button.callback = self.cancel_selection
         self.add_item(cancel_button)
 
-        # Store pagination state
-        self.cog._update_pagination_state(interaction.id, {
+        # Store pagination state using user ID
+        self.cog._update_pagination_state(interaction.user.id, {
             "current_page": 1,
-            "channels": text_channels
+            "channels": text_channels,
+            "message_id": interaction.message.id
         })
 
         await interaction.response.edit_message(view=self)
@@ -2162,8 +2175,8 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        # Get current pagination state
-        pagination_state = self.cog._get_pagination_state(interaction.id)
+        # Get current pagination state using user ID
+        pagination_state = self.cog._get_pagination_state(interaction.user.id)
         if not pagination_state:
             await interaction.response.send_message(
                 "❌ Pagination state not found. Please try again.",
@@ -2215,7 +2228,7 @@ class SetupWizardView(discord.ui.View):
         self.add_item(cancel_button)
 
         # Update pagination state
-        self.cog._update_pagination_state(interaction.id, {
+        self.cog._update_pagination_state(interaction.user.id, {
             **pagination_state,
             "current_page": current_page
         })
@@ -2230,8 +2243,8 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        # Get current pagination state
-        pagination_state = self.cog._get_pagination_state(interaction.id)
+        # Get current pagination state using user ID
+        pagination_state = self.cog._get_pagination_state(interaction.user.id)
         if not pagination_state:
             await interaction.response.send_message(
                 "❌ Pagination state not found. Please try again.",
@@ -2283,7 +2296,7 @@ class SetupWizardView(discord.ui.View):
         self.add_item(cancel_button)
 
         # Update pagination state
-        self.cog._update_pagination_state(interaction.id, {
+        self.cog._update_pagination_state(interaction.user.id, {
             **pagination_state,
             "current_page": current_page
         })
@@ -2343,10 +2356,11 @@ class SetupWizardView(discord.ui.View):
         cancel_button.callback = self.cancel_selection
         self.add_item(cancel_button)
 
-        # Store pagination state
-        self.cog._update_pagination_state(interaction.id, {
+        # Store pagination state using user ID
+        self.cog._update_pagination_state(interaction.user.id, {
             "current_page": 1,
-            "channels": text_channels
+            "channels": text_channels,
+            "message_id": interaction.message.id
         })
 
         await interaction.response.edit_message(view=self)
@@ -2359,8 +2373,8 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        # Get current pagination state
-        pagination_state = self.cog._get_pagination_state(interaction.id)
+        # Get current pagination state using user ID
+        pagination_state = self.cog._get_pagination_state(interaction.user.id)
         if not pagination_state:
             await interaction.response.send_message(
                 "❌ Pagination state not found. Please try again.",
@@ -2412,7 +2426,7 @@ class SetupWizardView(discord.ui.View):
         self.add_item(cancel_button)
 
         # Update pagination state
-        self.cog._update_pagination_state(interaction.id, {
+        self.cog._update_pagination_state(interaction.user.id, {
             **pagination_state,
             "current_page": current_page
         })
@@ -2427,8 +2441,8 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        # Get current pagination state
-        pagination_state = self.cog._get_pagination_state(interaction.id)
+        # Get current pagination state using user ID
+        pagination_state = self.cog._get_pagination_state(interaction.user.id)
         if not pagination_state:
             await interaction.response.send_message(
                 "❌ Pagination state not found. Please try again.",
@@ -2480,7 +2494,7 @@ class SetupWizardView(discord.ui.View):
         self.add_item(cancel_button)
 
         # Update pagination state
-        self.cog._update_pagination_state(interaction.id, {
+        self.cog._update_pagination_state(interaction.user.id, {
             **pagination_state,
             "current_page": current_page
         })
@@ -2687,6 +2701,10 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
+        # Get first page of roles
+        page_roles, has_more = self.cog._get_paginated_roles(available_roles, 1, "admin")
+
+        # Create select menu
         select = discord.ui.Select(
             placeholder="Choose an existing Admin role",
             options=[
@@ -2695,25 +2713,39 @@ class SetupWizardView(discord.ui.View):
                     value=str(role.id),
                     description=f"Select {role.name} as Admin role"
                 )
-                for role in available_roles
+                for role in page_roles
             ]
         )
         select.callback = self.handle_admin_role_selection
-        
+
         # Update view with select menu
         self.clear_items()
         self.add_item(select)
         self.selection_active = True
         self.current_select = "admin_role"
 
+        # Add navigation buttons if there are more pages
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_admin_role_next_page
+            self.add_item(next_button)
+
         # Add a cancel button
         cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
         cancel_button.callback = self.cancel_selection
         self.add_item(cancel_button)
-        
+
+        # Store pagination state using user ID
+        self.cog._update_pagination_state(interaction.user.id, {
+            "current_page": 1,
+            "role_type": "admin",
+            "roles": available_roles,
+            "message_id": interaction.message.id
+        })
+
         await interaction.response.edit_message(view=self)
 
-    async def handle_admin_role_selection(self, interaction: discord.Interaction):
+    async def handle_admin_role_next_page(self, interaction: discord.Interaction):
         if not self.is_admin(interaction):
             await interaction.response.send_message(
                 "❌ You need administrator permissions to use this command.",
@@ -2721,19 +2753,68 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        role_id = int(interaction.data["values"][0])
-        role = interaction.guild.get_role(role_id)
-        if role:
-            self.settings["admin_role_name"] = role.name
-            self.selection_active = False
-            self.current_select = None
-            await self.show_current_step()
-            await interaction.response.edit_message(view=self)
-        else:
-            await interaction.response.send_message("❌ Selected role not found.", ephemeral=True)
+        # Get current pagination state using user ID
+        pagination_state = self.cog._get_pagination_state(interaction.user.id)
+        if not pagination_state:
+            await interaction.response.send_message(
+                "❌ Pagination state not found. Please try again.",
+                ephemeral=True
+            )
+            return
 
-    @discord.ui.button(label="Create Admin Role", style=discord.ButtonStyle.primary)
-    async def create_admin_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Get next page
+        current_page = pagination_state["current_page"] + 1
+        page_roles, has_more = self.cog._get_paginated_roles(
+            pagination_state["roles"],
+            current_page,
+            pagination_state["role_type"]
+        )
+
+        # Create select menu
+        select = discord.ui.Select(
+            placeholder="Choose an existing Admin role",
+            options=[
+                discord.SelectOption(
+                    label=role.name,
+                    value=str(role.id),
+                    description=f"Select {role.name} as Admin role"
+                )
+                for role in page_roles
+            ]
+        )
+        select.callback = self.handle_admin_role_selection
+
+        # Update view with select menu
+        self.clear_items()
+        self.add_item(select)
+        self.selection_active = True
+        self.current_select = "admin_role"
+
+        # Add navigation buttons
+        if current_page > 1:
+            prev_button = discord.ui.Button(label="Previous Page", style=discord.ButtonStyle.secondary)
+            prev_button.callback = self.handle_admin_role_prev_page
+            self.add_item(prev_button)
+
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_admin_role_next_page
+            self.add_item(next_button)
+
+        # Add a cancel button
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        cancel_button.callback = self.cancel_selection
+        self.add_item(cancel_button)
+
+        # Update pagination state
+        self.cog._update_pagination_state(interaction.user.id, {
+            **pagination_state,
+            "current_page": current_page
+        })
+
+        await interaction.response.edit_message(view=self)
+
+    async def handle_admin_role_prev_page(self, interaction: discord.Interaction):
         if not self.is_admin(interaction):
             await interaction.response.send_message(
                 "❌ You need administrator permissions to use this command.",
@@ -2741,13 +2822,66 @@ class SetupWizardView(discord.ui.View):
             )
             return
 
-        try:
-            settings = self.get_guild_settings(interaction.guild_id)
-            role = await interaction.guild.create_role(name=settings["admin_role_name"])
-            self.settings["admin_role_name"] = role.name
-            await interaction.response.send_message(f"✅ Created Admin role: {role.mention}", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Error creating Admin role: {e}", ephemeral=True)
+        # Get current pagination state using user ID
+        pagination_state = self.cog._get_pagination_state(interaction.user.id)
+        if not pagination_state:
+            await interaction.response.send_message(
+                "❌ Pagination state not found. Please try again.",
+                ephemeral=True
+            )
+            return
+
+        # Get previous page
+        current_page = pagination_state["current_page"] - 1
+        page_roles, has_more = self.cog._get_paginated_roles(
+            pagination_state["roles"],
+            current_page,
+            pagination_state["role_type"]
+        )
+
+        # Create select menu
+        select = discord.ui.Select(
+            placeholder="Choose an existing Admin role",
+            options=[
+                discord.SelectOption(
+                    label=role.name,
+                    value=str(role.id),
+                    description=f"Select {role.name} as Admin role"
+                )
+                for role in page_roles
+            ]
+        )
+        select.callback = self.handle_admin_role_selection
+
+        # Update view with select menu
+        self.clear_items()
+        self.add_item(select)
+        self.selection_active = True
+        self.current_select = "admin_role"
+
+        # Add navigation buttons
+        if current_page > 1:
+            prev_button = discord.ui.Button(label="Previous Page", style=discord.ButtonStyle.secondary)
+            prev_button.callback = self.handle_admin_role_prev_page
+            self.add_item(prev_button)
+
+        if has_more:
+            next_button = discord.ui.Button(label="Next Page", style=discord.ButtonStyle.secondary)
+            next_button.callback = self.handle_admin_role_next_page
+            self.add_item(next_button)
+
+        # Add a cancel button
+        cancel_button = discord.ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        cancel_button.callback = self.cancel_selection
+        self.add_item(cancel_button)
+
+        # Update pagination state
+        self.cog._update_pagination_state(interaction.user.id, {
+            **pagination_state,
+            "current_page": current_page
+        })
+
+        await interaction.response.edit_message(view=self)
 
     async def cancel_selection(self, interaction: discord.Interaction):
         if not self.is_admin(interaction):
@@ -2760,7 +2894,7 @@ class SetupWizardView(discord.ui.View):
         self.selection_active = False
         self.current_select = None
         # Clear pagination state
-        self.cog._clear_pagination_state(interaction.id)
+        self.cog._clear_pagination_state(interaction.user.id)
         await self.show_current_step()
         await interaction.response.edit_message(view=self)
 
@@ -2839,6 +2973,44 @@ class SetupWizardView(discord.ui.View):
             await interaction.response.edit_message(view=self)
         else:
             await interaction.response.send_message("❌ Selected channel not found.", ephemeral=True)
+
+    async def handle_admin_role_selection(self, interaction: discord.Interaction):
+        if not self.is_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+            return
+
+        role_id = int(interaction.data["values"][0])
+        role = interaction.guild.get_role(role_id)
+        if role:
+            self.settings["admin_role_name"] = role.name
+            self.selection_active = False
+            self.current_select = None
+            # Clear pagination state
+            self.cog._clear_pagination_state(interaction.user.id)
+            await self.show_current_step()
+            await interaction.response.edit_message(view=self)
+        else:
+            await interaction.response.send_message("❌ Selected role not found.", ephemeral=True)
+
+    @discord.ui.button(label="Create Admin Role", style=discord.ButtonStyle.primary)
+    async def create_admin_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.is_admin(interaction):
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to use this command.",
+                ephemeral=True
+            )
+            return
+
+        try:
+            settings = self.get_guild_settings(interaction.guild_id)
+            role = await interaction.guild.create_role(name=settings["admin_role_name"])
+            self.settings["admin_role_name"] = role.name
+            await interaction.response.send_message(f"✅ Created Admin role: {role.mention}", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Error creating Admin role: {e}", ephemeral=True)
 
 async def setup(bot):
     """Add the cog to the bot."""
