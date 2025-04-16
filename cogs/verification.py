@@ -976,9 +976,16 @@ class VerificationCog(commands.Cog):
                     )
                     await channel.send(embed=embed)
                     
-                    # Schedule channel deletion
-                    await asyncio.sleep(60)
-                    await channel.delete()
+                    # Schedule channel deletion in a background task
+                    async def delete_channel():
+                        try:
+                            await asyncio.sleep(60)
+                            await channel.delete()
+                        except Exception as e:
+                            logging.error(f"Failed to delete verification channel {channel.id}: {e}")
+                    
+                    # Start the deletion task
+                    asyncio.create_task(delete_channel())
 
                 # Log approval
                 astra_db_ops.log_verification_attempt(
@@ -1013,15 +1020,23 @@ class VerificationCog(commands.Cog):
                         title="❌ Verification Denied",
                         description=(
                             "Your verification has been denied by an administrator.\n"
-                            "Please contact the server staff for more information."
+                            "Please contact the server staff for more information.\n\n"
+                            "This channel will be deleted in 60 seconds."
                         ),
                         color=discord.Color.red()
                     )
                     await channel.send(embed=embed)
                     
-                    # Schedule channel deletion
-                    await asyncio.sleep(60)
-                    await channel.delete()
+                    # Schedule channel deletion in a background task
+                    async def delete_channel():
+                        try:
+                            await asyncio.sleep(60)
+                            await channel.delete()
+                        except Exception as e:
+                            logging.error(f"Failed to delete verification channel {channel.id}: {e}")
+                    
+                    # Start the deletion task
+                    asyncio.create_task(delete_channel())
 
                 # Send DM to user
                 try:
