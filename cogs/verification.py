@@ -640,6 +640,7 @@ class VerificationCog(commands.Cog):
     async def verification_status(self, interaction: discord.Interaction):
         """Check current verification settings for the server."""
         try:
+            await interaction.response.defer(ephemeral=True)
             settings = self.get_guild_settings(interaction.guild_id)
             
             embed = discord.Embed(
@@ -667,13 +668,12 @@ class VerificationCog(commands.Cog):
             )
             embed.add_field(name="Channels", value=channels_section, inline=False)
             
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.edit_original_response(embed=embed)
             
         except Exception as e:
             logging.error(f"Error checking verification status: {e}")
-            await interaction.response.send_message(
-                "❌ An error occurred while checking verification status.",
-                ephemeral=True
+            await interaction.edit_original_response(
+                content="❌ An error occurred while checking verification status."
             )
 
     @app_commands.command(name="setup_wizard", description="Start the verification setup wizard")
