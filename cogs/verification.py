@@ -719,25 +719,24 @@ class VerificationCog(commands.Cog):
     async def handle_rules_acknowledgment(self, interaction: discord.Interaction):
         """Handle when a user acknowledges reading the rules."""
         try:
+            await interaction.response.defer(ephemeral=True)
+            
             if interaction.user.id not in self.active_verifications:
-                await interaction.response.send_message(
-                    "❌ No active verification session found.",
-                    ephemeral=True
+                await interaction.edit_original_response(
+                    content="❌ No active verification session found."
                 )
                 return
 
             verification_data = self.active_verifications[interaction.user.id]
             if verification_data["channel_id"] != interaction.channel.id:
-                await interaction.response.send_message(
-                    "❌ Please use your verification channel.",
-                    ephemeral=True
+                await interaction.edit_original_response(
+                    content="❌ Please use your verification channel."
                 )
                 return
 
             if verification_data["stage"] != "rules":
-                await interaction.response.send_message(
-                    "❌ Please complete verification first.",
-                    ephemeral=True
+                await interaction.edit_original_response(
+                    content="❌ Please complete verification first."
                 )
                 return
 
@@ -771,7 +770,7 @@ class VerificationCog(commands.Cog):
             )
             view.add_item(done_button)
 
-            await interaction.response.edit_message(embed=embed, view=view)
+            await interaction.edit_original_response(embed=embed, view=view)
 
             # Log rules acknowledgment
             astra_db_ops.log_verification_attempt(
@@ -783,10 +782,15 @@ class VerificationCog(commands.Cog):
 
         except Exception as e:
             logging.error(f"Error handling rules acknowledgment: {e}")
-            await interaction.response.send_message(
-                "❌ An error occurred. Please try again or contact an admin.",
-                ephemeral=True
-            )
+            try:
+                await interaction.edit_original_response(
+                    content="❌ An error occurred. Please try again or contact an admin."
+                )
+            except discord.errors.NotFound:
+                # If interaction expired, try sending to channel
+                await interaction.channel.send(
+                    "❌ An error occurred. Please try again or contact an admin."
+                )
 
     async def handle_role_selection_complete(self, interaction: discord.Interaction):
         """Handle completion of role selection."""
