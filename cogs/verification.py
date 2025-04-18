@@ -43,6 +43,11 @@ class VerificationCog(commands.Cog):
         """Get verification settings for a guild."""
         return astra_db_ops.get_guild_verification_settings(guild_id)
 
+    def get_channel_id(self, guild: discord.Guild, channel_name: str) -> Optional[int]:
+        """Get channel ID from channel name."""
+        channel = discord.utils.get(guild.channels, name=channel_name)
+        return channel.id if channel else None
+
     async def assign_guest_role(self, member: discord.Member):
         """Assign the Guest role to a new member."""
         try:
@@ -283,7 +288,7 @@ class VerificationCog(commands.Cog):
                     description=(
                         "Congratulations! You've successfully completed the verification.\n\n"
                         "**Next Steps:**\n"
-                        "1. Please read the server rules in #rules\n"
+                        f"1. Please read the server rules in <#{self.get_channel_id(message.guild, settings['rules_channel_name'])}>\n"
                         "2. Come back here and click the button below when you're done"
                     ),
                     color=discord.Color.green()
@@ -382,7 +387,12 @@ class VerificationCog(commands.Cog):
             logging.debug(f"[DEBUG] Guild settings: {settings}")
             admin_channel = discord.utils.get(member.guild.channels, name=settings["admin_channel_name"])
             if admin_channel:
-                await admin_channel.send(f"👋 {member.mention} has joined and is going through the verification process.")
+                admin_role = discord.utils.get(member.guild.roles, name=settings["admin_role_name"])
+                admin_mention = admin_role.mention if admin_role else "@admin"
+                await admin_channel.send(
+                    f"👋 {member.mention} has joined and is going through the verification process.\n"
+                    f"{admin_mention} - Please monitor the verification process."
+                )
             
             if not settings["enabled"]:
                 logging.debug(f"[DEBUG] Verification is disabled for guild: {member.guild.name}")
@@ -515,12 +525,6 @@ class VerificationCog(commands.Cog):
                 description="Select your roles by clicking the buttons below:",
                 color=discord.Color.blue()
             )
-
-            # Add available roles
-            available_roles = [
-                "Gamer", "Artist", "Music", "Tech", "Sports",
-                "Movies", "Books", "Food", "Travel", "Science"
-            ]
 
             # Create view with role buttons
             view = RoleSelectionView(self, member, roles_channel.id)
@@ -737,6 +741,9 @@ class VerificationCog(commands.Cog):
                 )
                 return
 
+            # Get guild settings
+            settings = self.get_guild_settings(interaction.guild_id)
+
             # Update verification stage
             verification_data["stage"] = "roles"
             verification_data["rules_acknowledged"] = True
@@ -747,7 +754,7 @@ class VerificationCog(commands.Cog):
                 title="🎭 Role Selection",
                 description=(
                     "Great! Now let's select your roles.\n\n"
-                    "1. Go to #roles channel\n"
+                    f"1. Go to <#{self.get_channel_id(interaction.guild, settings['roles_channel_name'])}> channel\n"
                     "2. React to the roles you're interested in\n"
                     "3. Come back here and click 'Done Selecting Roles' when finished\n\n"
                     "**Note:** You can always change your roles later!"
@@ -799,7 +806,7 @@ class VerificationCog(commands.Cog):
             
             if not user_roles:
                 await interaction.followup.send(
-                    "❌ Please select at least one role in the #roles channel before proceeding.",
+                    f"❌ Please select at least one role in the #{settings['roles_channel_name']} channel before proceeding.",
                     ephemeral=True
                 )
                 return
@@ -996,6 +1003,34 @@ class VerificationCog(commands.Cog):
                     success=True
                 )
 
+                # Send welcome message in welcome channel
+                welcome_channel = discord.utils.get(
+                    interaction.guild.channels,
+                    name=settings["welcome_channel_name"]
+                )
+                welcome_committee_role = discord.utils.get(
+                    interaction.guild.roles,
+                    name=settings["welcome_committee_role_name"]
+                )
+                
+                if welcome_channel and welcome_committee_role:
+                    welcome_embed = discord.Embed(
+                        title="🎉 A New Adventurer Has Arrived! 🎉",
+                        description=(
+                            f"**{member.mention}** has bravely navigated the verification maze and emerged victorious! 🏆\n\n"
+                            "🎮 They've completed the tutorial\n"
+                            "📜 Read the sacred texts (rules)\n"
+                            "🎭 Chosen their character class (roles)\n\n"
+                            f"{welcome_committee_role.mention} - Time to roll out the red carpet and show our new hero around! "
+                            "Make sure they get their starter pack and know where the coffee machine is! ☕"
+                        ),
+                        color=discord.Color.gold()
+                    )
+                    welcome_embed.set_thumbnail(url=member.display_avatar.url)
+                    await welcome_channel.send(embed=welcome_embed)
+                else:
+                    logging.warning(f"Welcome channel or committee role not found for guild {interaction.guild_id}")
+
             else:  # deny
                 if guest_role:
                     await member.remove_roles(guest_role)
@@ -1058,7 +1093,6 @@ class VerificationCog(commands.Cog):
 
             # Clean up
             del self.active_verifications[user_id]
-            await interaction.message.delete()
 
         except Exception as e:
             logging.error(f"Error handling admin decision: {e}")
@@ -1195,7 +1229,7 @@ class RoleSelectionView(discord.ui.View):
             
             if not user_roles:
                 await interaction.followup.send(
-                    "❌ Please select at least one role in the #roles channel before proceeding.",
+                    f"❌ Please select at least one role in the #{settings['roles_channel_name']} channel before proceeding.",
                     ephemeral=True
                 )
                 return

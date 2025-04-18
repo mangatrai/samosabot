@@ -457,11 +457,14 @@ def get_guild_verification_settings(guild_id: int) -> dict:
     """
     try:
         collection = get_guild_verification_settings_collection()
+        logging.info(f"Querying for guild_id: {guild_id} (type: {type(guild_id)})")
         result = collection.find_one({"guild_id": guild_id})
         
         if result:
+            logging.info(f"Found settings: {result}")
             return result
         else:
+            logging.info(f"No settings found for guild_id: {guild_id}, returning defaults")
             # Return default settings if none exist
             return {
                 "guild_id": guild_id,
@@ -488,6 +491,8 @@ def update_guild_verification_settings(guild_id: int, settings: dict):
     try:
         collection = get_guild_verification_settings_collection()
         settings["guild_id"] = guild_id
+        logging.debug(f"Updating settings for guild_id: {guild_id} (type: {type(guild_id)})")
+        logging.debug(f"Settings being stored: {settings}")
         collection.find_one_and_update(
             {"guild_id": guild_id},
             {"$set": settings},
