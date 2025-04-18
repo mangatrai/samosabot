@@ -1018,6 +1018,10 @@ class VerificationCog(commands.Cog):
                 )
                 
                 if welcome_channel and welcome_committee_role:
+                    # Send the role mention in the content
+                    await welcome_channel.send(f"{welcome_committee_role.mention}")
+                    
+                    # Send the embed with the rest of the welcome message
                     welcome_embed = discord.Embed(
                         title="🎉 A New Adventurer Has Arrived! 🎉",
                         description=(
@@ -1025,7 +1029,7 @@ class VerificationCog(commands.Cog):
                             "🎮 They've completed the tutorial\n"
                             "📜 Read the sacred texts (rules)\n"
                             "🎭 Chosen their character class (roles)\n\n"
-                            f"{welcome_committee_role.mention} - Time to roll out the red carpet and show our new hero around! "
+                            "Time to roll out the red carpet and show our new hero around! "
                             "Make sure they get their starter pack and know where the coffee machine is! ☕"
                         ),
                         color=discord.Color.gold()

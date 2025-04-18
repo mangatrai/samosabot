@@ -148,6 +148,10 @@ async def samosa(ctx, action: str, channel: discord.TextChannel = None):
         # Start the scheduled bot status task if not running
         if not bot_status_task.is_running():
             bot_status_task.start()
+    elif action.lower() == "disable":
+        guild_id = ctx.guild.id
+        save_bot_status_channel(guild_id, None)
+        await ctx.send("✅ Bot status updates have been disabled for this server.")
 
 # Prefix Command for SetQOTD Channel
 @bot.command(name="setqotdchannel")
@@ -228,21 +232,27 @@ async def list_servers(ctx):
 
 # Slash Command for Bot Status
 @tree.command(name="samosa", description="Check or enable bot status updates")
-@app_commands.describe(action="Enable bot status updates", channel="Select a channel (optional, defaults to current)")
-@app_commands.choices(action=[app_commands.Choice(name="Bot Status", value="botstatus")])
+@app_commands.describe(action="Enable or disable bot status updates", channel="Select a channel (optional, defaults to current)")
+@app_commands.choices(action=[
+    app_commands.Choice(name="Bot Status", value="botstatus"),
+    app_commands.Choice(name="Disable", value="disable")
+])
 async def slash_samosa(interaction: discord.Interaction, action: str, channel: discord.TextChannel = None):
-    if action == "botstatus":
-        channel_id = channel.id if channel else interaction.channel_id
+    if action.lower() == "botstatus":
+        channel_id = channel.id if channel else interaction.channel.id
         guild_id = interaction.guild_id
 
         # Store bot status channel in AstraDB
         save_bot_status_channel(guild_id, channel_id)
-
-        await interaction.response.send_message(f"✅ Bot status updates will be sent to <#{channel_id}> every 30 minutes.", ephemeral=True)
+        await interaction.response.send_message(f"✅ Bot status updates will be sent to <#{channel_id}> every 30 minutes.")
 
         # Start the scheduled bot status task if not running
         if not bot_status_task.is_running():
             bot_status_task.start()
+    elif action.lower() == "disable":
+        guild_id = interaction.guild_id
+        save_bot_status_channel(guild_id, None)
+        await interaction.response.send_message("✅ Bot status updates have been disabled for this server.")
 
 # Slash Command for QOTD
 @tree.command(name="qotd", description="Get a Question of the Day")
