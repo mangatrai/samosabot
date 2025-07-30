@@ -562,3 +562,140 @@ def update_guild_role_settings(guild_id: int, role_type: str, role_name: str):
         logging.info(f"Updated {role_type} role for guild {guild_id} to {role_name}")
     except Exception as e:
         logging.error(f"Error updating guild role settings: {e}")
+
+def get_active_verifications_collection():
+    """Get the active verifications collection."""
+    database = get_db_connection()
+    if database is None:
+        return None
+    try:
+        collection = database.get_collection("active_verifications")
+        logging.debug(f"Retrieved active_verifications collection: {collection.info().name}")
+        return collection
+    except Exception as e:
+        logging.error(f"[ERROR] Failed to retrieve active_verifications collection: {e}")
+        return None
+
+def save_active_verification(user_id: int, guild_id: int, channel_id: int, data: dict):
+    """
+    Save or update an active verification session.
+    
+    Args:
+        user_id: Discord user ID
+        guild_id: Discord guild ID
+        channel_id: Temporary verification channel ID
+        data: Additional verification data including:
+            - username: str
+            - stage: str
+            - selected_roles: list
+            - started_at: datetime
+            - last_updated: datetime
+            - expires_at: datetime
+    """
+    try:
+        collection = get_active_verifications_collection()
+        if collection is None:
+            return
+
+        document = {
+            "user_id": user_id,
+            "guild_id": guild_id,
+            "channel_id": channel_id,
+            **data
+        }
+        
+        collection.find_one_and_update(
+            {"user_id": user_id, "guild_id": guild_id},
+            {"$set": document},
+            upsert=True
+        )
+        logging.debug(f"Saved active verification for user {user_id} in guild {guild_id}")
+    except Exception as e:
+        logging.error(f"Error saving active verification: {e}")
+
+def get_active_verification(user_id: int, guild_id: int):
+    """
+    Get an active verification session.
+    
+    Args:
+        user_id: Discord user ID
+        guild_id: Discord guild ID
+        
+    Returns:
+        dict: Active verification data or None if not found
+    """
+    try:
+        collection = get_active_verifications_collection()
+        if collection is None:
+            return None
+            
+        return collection.find_one({
+            "user_id": user_id,
+            "guild_id": guild_id
+        })
+    except Exception as e:
+        logging.error(f"Error getting active verification: {e}")
+        return None
+
+def delete_active_verification(user_id: int, guild_id: int):
+    """
+    Delete an active verification session.
+    
+    Args:
+        user_id: Discord user ID
+        guild_id: Discord guild ID
+    """
+    try:
+        collection = get_active_verifications_collection()
+        if collection is None:
+            return
+            
+        collection.delete_one({
+            "user_id": user_id,
+            "guild_id": guild_id
+        })
+        logging.debug(f"Deleted active verification for user {user_id} in guild {guild_id}")
+    except Exception as e:
+        logging.error(f"Error deleting active verification: {e}")
+
+def get_guild_active_verifications(guild_id: int):
+    """
+    Get all active verifications for a guild.
+    
+    Args:
+        guild_id: Discord guild ID
+        
+    Returns:
+        list: List of active verification documents
+    """
+    try:
+        collection = get_active_verifications_collection()
+        if collection is None:
+            return []
+            
+        return list(collection.find({"guild_id": guild_id}))
+    except Exception as e:
+        logging.error(f"Error getting guild active verifications: {e}")
+        return []
+
+def load_all_active_verifications():
+    """
+    Load all active verifications from the database.
+    This is typically called during bot startup.
+    
+    Returns:
+        dict: Dictionary mapping (user_id, guild_id) tuples to verification data
+    """
+    try:
+        collection = get_active_verifications_collection()
+        if collection is None:
+            return {}
+            
+        verifications = {}
+        for doc in collection.find():
+            verifications[(doc["user_id"], doc["guild_id"])] = doc
+            
+        return verifications
+    except Exception as e:
+        logging.error(f"Error loading all active verifications: {e}")
+        return {}

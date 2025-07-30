@@ -37,52 +37,42 @@ class MemberEventsCog(commands.Cog):
             # Get member's roles from Discord API
             roles = [role for role in member.roles if role.name != "@everyone"]
             
-            # Remove all roles from the member
-            for role in roles:
-                try:
-                    await member.remove_roles(role)
-                    logging.debug(f"Removed role {role.name} from {member.name}")
-                except Exception as e:
-                    logging.error(f"Failed to remove role {role.name} from {member.name}: {e}")
+            # Handle verification cleanup if member was in verification process
+            if self.verification_cog:
+                verification_data = self.verification_cog.get_verification_data(member.id, member.guild.id)
+                if verification_data:
+                    # Delete verification channel if it exists
+                    channel = member.guild.get_channel(verification_data["channel_id"])
+                    if channel:
+                        try:
+                            await channel.delete()
+                            logging.debug(f"Deleted verification channel for {member.name}")
+                        except Exception as e:
+                            logging.error(f"Failed to delete verification channel for {member.name}: {e}")
+                    
+                    # Clean up verification data
+                    self.verification_cog.delete_verification_data(member.id, member.guild.id)
+                    logging.debug(f"Cleaned up verification data for {member.name}")
             
-            # Scenario 1: Clean up verification state if member was in verification process
-            if self.verification_cog and member.id in self.verification_cog.active_verifications:
-                verification_data = self.verification_cog.active_verifications[member.id]
-                
-                # Delete verification channel if it exists
-                channel = member.guild.get_channel(verification_data["channel_id"])
-                if channel:
-                    try:
-                        await channel.delete()
-                        logging.debug(f"Deleted verification channel for {member.name}")
-                    except Exception as e:
-                        logging.error(f"Failed to delete verification channel for {member.name}: {e}")
-                
-                # Remove from active verifications
-                del self.verification_cog.active_verifications[member.id]
-                logging.debug(f"Removed verification state for {member.name}")
-            
-            # Scenario 2: Notify admins about verified member leaving
-            else:
-                # Get admin channel from guild settings
-                if self.verification_cog:
-                    settings = self.verification_cog.get_guild_settings(member.guild.id)
-                    if isinstance(settings, dict):
-                        admin_channel_name = settings.get("admin_channel_name")
-                        if admin_channel_name:
-                            admin_channel = discord.utils.get(member.guild.channels, name=admin_channel_name)
-                            if admin_channel:
-                                embed = discord.Embed(
-                                    title="👋 Member Left",
-                                    description=(
-                                        f"**User:** {member.mention}\n"
-                                        f"**ID:** {member.id}\n"
-                                        f"**Roles:** {', '.join(role.name for role in roles) if roles else 'None'}\n"
-                                        f"**Time:** {discord.utils.format_dt(discord.utils.utcnow(), 'R')}"
-                                    ),
-                                    color=discord.Color.orange()
-                                )
-                                await admin_channel.send(embed=embed)
+            # Notify admins about member leaving (regardless of verification status)
+            if self.verification_cog:
+                settings = self.verification_cog.get_guild_settings(member.guild.id)
+                if isinstance(settings, dict):
+                    admin_channel_name = settings.get("admin_channel_name")
+                    if admin_channel_name:
+                        admin_channel = discord.utils.get(member.guild.channels, name=admin_channel_name)
+                        if admin_channel:
+                            embed = discord.Embed(
+                                title="👋 Member Left",
+                                description=(
+                                    f"**User:** {member.mention}\n"
+                                    f"**ID:** {member.id}\n"
+                                    f"**Roles:** {', '.join(role.name for role in roles) if roles else 'None'}\n"
+                                    f"**Time:** {discord.utils.format_dt(discord.utils.utcnow(), 'R')}"
+                                ),
+                                color=discord.Color.orange()
+                            )
+                            await admin_channel.send(embed=embed)
                 
         except Exception as e:
             logging.error(f"Error in on_member_remove for {member.name}: {e}")

@@ -21,7 +21,8 @@ import asyncio
 class VerificationCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.active_verifications: Dict[int, Dict] = {}  # user_id -> verification data
+        # Load active verifications from database on startup
+        self.active_verifications = astra_db_ops.load_all_active_verifications()
         self.rules_messages: Dict[int, int] = {}  # guild_id -> message_id
         self.role_selections: Dict[int, Dict] = {}  # user_id -> selection data
         
@@ -34,10 +35,35 @@ class VerificationCog(commands.Cog):
     async def cog_load(self):
         """Initialize the cog."""
         logging.info("Loading VerificationCog...")
+        # Reload active verifications from database
+        self.active_verifications = astra_db_ops.load_all_active_verifications()
 
     async def cog_unload(self):
         """Clean up when the cog is unloaded."""
         logging.info("Unloading VerificationCog...")
+        # No need to save active verifications as they are already in the database
+
+    def get_verification_data(self, user_id: int, guild_id: int) -> Optional[Dict]:
+        """Get verification data for a user from the database."""
+        return astra_db_ops.get_active_verification(user_id, guild_id)
+
+    def save_verification_data(self, user_id: int, guild_id: int, channel_id: int, data: Dict):
+        """Save verification data to the database."""
+        astra_db_ops.save_active_verification(user_id, guild_id, channel_id, data)
+        # Update local cache
+        if user_id not in self.active_verifications:
+            self.active_verifications[user_id] = {}
+        self.active_verifications[user_id][guild_id] = data
+
+    def delete_verification_data(self, user_id: int, guild_id: int):
+        """Delete verification data from the database."""
+        astra_db_ops.delete_active_verification(user_id, guild_id)
+        # Update local cache
+        if user_id in self.active_verifications:
+            if guild_id in self.active_verifications[user_id]:
+                del self.active_verifications[user_id][guild_id]
+            if not self.active_verifications[user_id]:
+                del self.active_verifications[user_id]
 
     def get_guild_settings(self, guild_id: int) -> dict:
         """Get verification settings for a guild."""
@@ -77,7 +103,7 @@ class VerificationCog(commands.Cog):
         """Send a verification challenge to the user."""
         try:
             # Get stored questions
-            verification_data = self.active_verifications.get(member.id)
+            verification_data = self.get_verification_data(member.id, member.guild.id)
             if not verification_data or "questions" not in verification_data:
                 logging.error(f"No verification questions found for {member.name}")
                 return
@@ -118,17 +144,20 @@ class VerificationCog(commands.Cog):
     async def handle_verification_button(self, interaction: discord.Interaction):
         """Handle the verification button click."""
         try:
-            if interaction.user.id not in self.active_verifications:
+            # Get verification data from database
+            verification_data = self.get_verification_data(interaction.user.id, interaction.guild.id)
+            
+            if verification_data:
+                if verification_data["channel_id"] != interaction.channel_id:
+                    await interaction.response.send_message(
+                        "❌ Please use your verification channel.",
+                        ephemeral=True
+                    )
+                    return
+                questions = verification_data["questions"]
+            else:
                 await interaction.response.send_message(
                     "❌ No active verification session found.",
-                    ephemeral=True
-                )
-                return
-
-            verification_data = self.active_verifications[interaction.user.id]
-            if verification_data["channel_id"] != interaction.channel_id:
-                await interaction.response.send_message(
-                    "❌ Please use your verification channel.",
                     ephemeral=True
                 )
                 return
@@ -176,7 +205,7 @@ class VerificationCog(commands.Cog):
             if user_id not in self.active_verifications:
                 return
 
-            verification_data = self.active_verifications[user_id]
+            verification_data = self.get_verification_data(user_id, message.guild.id)
             if verification_data["stage"] != "answering":
                 return
 
@@ -264,7 +293,7 @@ class VerificationCog(commands.Cog):
     async def complete_verification(self, message: discord.Message):
         """Handle completion of the verification questions."""
         try:
-            verification_data = self.active_verifications[message.author.id]
+            verification_data = self.get_verification_data(message.author.id, message.guild.id)
             correct_answers = verification_data["correct_answers"]
 
             if correct_answers >= 2:
@@ -408,14 +437,13 @@ class VerificationCog(commands.Cog):
             logging.debug(f"[DEBUG] Generated verification questions for {member.name}")
 
             # Store verification state
-            self.active_verifications[member.id] = {
-                "channel_id": channel.id,
+            self.save_verification_data(member.id, member.guild.id, channel.id, {
                 "stage": "verification",
                 "attempts": 0,
                 "timestamp": discord.utils.utcnow().timestamp(),
                 "selected_roles": set(),
                 "questions": questions
-            }
+            })
             logging.debug(f"[DEBUG] Stored verification state for {member.name}")
 
             # Create welcome embed
@@ -727,7 +755,7 @@ class VerificationCog(commands.Cog):
                 )
                 return
 
-            verification_data = self.active_verifications[interaction.user.id]
+            verification_data = self.get_verification_data(interaction.user.id, interaction.guild.id)
             if verification_data["channel_id"] != interaction.channel.id:
                 await interaction.edit_original_response(
                     content="❌ Please use your verification channel."
@@ -816,7 +844,7 @@ class VerificationCog(commands.Cog):
                 return
             
             # Update verification state
-            verification_data = self.active_verifications[interaction.user.id]
+            verification_data = self.get_verification_data(interaction.user.id, interaction.guild.id)
             verification_data["selected_roles"] = set(user_roles)
             verification_data["stage"] = "roles_selected"
             
@@ -925,7 +953,7 @@ class VerificationCog(commands.Cog):
                 )
                 return
 
-            verification_data = self.active_verifications[user_id]
+            verification_data = self.get_verification_data(user_id, interaction.guild.id)
             member = interaction.guild.get_member(user_id)
             
             if not member:
@@ -933,7 +961,7 @@ class VerificationCog(commands.Cog):
                     "❌ Member not found. They may have left the server.",
                     ephemeral=True
                 )
-                del self.active_verifications[user_id]
+                self.delete_verification_data(user_id, interaction.guild.id)
                 return
 
             # Acknowledge the interaction first
@@ -1100,7 +1128,7 @@ class VerificationCog(commands.Cog):
                 )
 
             # Clean up
-            del self.active_verifications[user_id]
+            self.delete_verification_data(user_id, interaction.guild.id)
 
         except Exception as e:
             logging.error(f"Error handling admin decision: {e}")
@@ -1243,7 +1271,7 @@ class RoleSelectionView(discord.ui.View):
                 return
             
             # Update verification state
-            verification_data = self.cog.active_verifications[interaction.user.id]
+            verification_data = self.cog.get_verification_data(interaction.user.id, interaction.guild.id)
             verification_data["selected_roles"] = set(user_roles)
             verification_data["stage"] = "roles_selected"
             
