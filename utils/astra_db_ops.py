@@ -699,3 +699,119 @@ def load_all_active_verifications():
     except Exception as e:
         logging.error(f"Error loading all active verifications: {e}")
         return {}
+
+# Truth and Dare Database Functions
+def get_truth_dare_questions_collection():
+    """Get the truth_dare_questions collection."""
+    database = get_db_connection()
+    if database is None:
+        return None
+    try:
+        collection = database.get_collection("truth_dare_questions")
+        logging.debug(f"Retrieved truth_dare_questions collection: {collection.info().name}")
+        return collection
+    except Exception as e:
+        logging.error(f"Failed to retrieve truth_dare_questions collection: {e}")
+        return None
+
+def get_random_truth_dare_question(question_type: str, rating: str = "PG"):
+    """Get a random question from the database."""
+    try:
+        collection = get_truth_dare_questions_collection()
+        if collection is None:
+            return None
+        
+        # Find all questions of the specified type and rating with positive feedback > negative feedback
+        filter_query = {
+            "type": question_type, 
+            "rating": rating, 
+            "approved": True,
+            "$expr": {"$gt": ["$positive_feedback", "$negative_feedback"]}
+        }
+        all_questions = list(collection.find(filter_query))
+        
+        if all_questions:
+            # Select a random question
+            import random
+            selected_question = random.choice(all_questions)
+            
+            # Update usage count
+            collection.update_one(
+                {"_id": selected_question["_id"]},
+                {"$inc": {"usage_count": 1}, "$set": {"last_used": datetime.datetime.utcnow().isoformat()}}
+            )
+            return selected_question
+        return None
+    except Exception as e:
+        logging.error(f"Error getting random truth/dare question: {e}")
+        return None
+
+def save_truth_dare_question(guild_id: str, user_id: str, question: str, 
+                           question_type: str, rating: str, source: str, 
+                           submitted_by: str = None):
+    """Save a truth/dare question to the database and return the document ID."""
+    try:
+        collection = get_truth_dare_questions_collection()
+        if collection is None:
+            return None
+        
+        document = {
+            "guild_id": guild_id,
+            "user_id": user_id,
+            "question": question,
+            "type": question_type,
+            "rating": rating,
+            "source": source,
+            "submitted_by": submitted_by or "Unknown",
+            "approved": True,  # Auto-approve all questions, let feedback system handle quality control
+            "positive_feedback": 0,
+            "negative_feedback": 0,
+            "usage_count": 0,
+            "created_at": datetime.datetime.utcnow().isoformat(),
+            "last_used": None
+        }
+        
+        result = collection.insert_one(document)
+        logging.debug(f"Saved truth/dare question: {question_type} - {question[:50]}... with ID: {result.inserted_id}")
+        return str(result.inserted_id)
+    except Exception as e:
+        logging.error(f"Error saving truth/dare question: {e}")
+        return None
+
+def get_truth_dare_question_by_id(question_id: str):
+    """Get a specific question by its ID."""
+    try:
+        collection = get_truth_dare_questions_collection()
+        if collection is None:
+            return None
+        
+        question = collection.find_one({"_id": question_id})
+        return question
+    except Exception as e:
+        logging.error(f"Error getting question by ID: {e}")
+        return None
+
+def record_question_feedback(question_id: str, feedback: str):
+    """Record feedback for a question."""
+    try:
+        collection = get_truth_dare_questions_collection()
+        if collection is None:
+            return False
+        
+        # Update feedback counters
+        if feedback == "positive":
+            collection.update_one(
+                {"_id": question_id},
+                {"$inc": {"positive_feedback": 1}}
+            )
+        elif feedback == "negative":
+            collection.update_one(
+                {"_id": question_id},
+                {"$inc": {"negative_feedback": 1}}
+            )
+        
+        logging.debug(f"Recorded {feedback} feedback for question {question_id}")
+        return True
+    except Exception as e:
+        logging.error(f"Error recording question feedback: {e}")
+        return False

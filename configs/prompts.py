@@ -85,3 +85,40 @@ roast_prompt = (
     "end with a sincere, unexpected compliment that softens the blow and leaves the target feeling respected. "
     "Ensure the transition from insult to compliment is smooth and creative."
 )
+
+# Truth and Dare prompts
+truth_pg_prompt = (
+    "Generate a fun, family-friendly truth question for a party game. "
+    "Keep it under 15 words. Make it interesting but appropriate for all ages. "
+    "Examples: 'What's your biggest fear?' or 'What's the most embarrassing thing you've done?'"
+)
+
+truth_pg13_prompt = (
+    "Generate a playful, flirty truth question for adults on a date or party. "
+    "Keep it under 15 words. Be suggestive but not explicit. "
+    "Examples: 'What's your biggest turn-on?' or 'What's the naughtiest thing you've done?'"
+)
+
+dare_pg_prompt = (
+    "Generate a fun, family-friendly dare challenge for a party game. "
+    "Keep it under 15 words. Make it entertaining but safe for all ages. "
+    "Examples: 'Do 10 jumping jacks' or 'Sing your favorite song'"
+)
+
+dare_pg13_prompt = (
+    "Generate a playful, flirty dare challenge for adults on a date or party. "
+    "Keep it under 15 words. Be suggestive but not explicit. "
+    "Examples: 'Give someone a 30-second massage' or 'Whisper something naughty in someone's ear'"
+)
+
+wyr_prompt = (
+    "Generate a fun 'Would You Rather' question for a party game. "
+    "Keep it under 15 words. Make it interesting and thought-provoking. "
+    "Examples: 'Would you rather be able to fly or be invisible?' or 'Would you rather have unlimited money or unlimited time?'"
+)
+
+nhie_prompt = (
+    "Generate a fun 'Never Have I Ever' statement for a party game. "
+    "Keep it under 15 words. Make it interesting but not too personal. "
+    "Examples: 'Never have I ever been to a concert' or 'Never have I ever lied about my age'"
+)

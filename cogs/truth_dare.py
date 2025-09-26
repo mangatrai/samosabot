@@ -1,0 +1,430 @@
+import discord
+from discord.ext import commands
+from discord import app_commands
+import logging
+import os
+import requests
+import random
+from dotenv import load_dotenv
+
+# Import existing utilities
+from utils import astra_db_ops
+from utils import openai_utils
+from configs import prompts
+
+load_dotenv()
+
+class TruthDareCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        self.api_base_url = os.getenv("TRUTH_DARE_API_URL", "https://api.truthordarebot.xyz/v1")
+
+    def get_api_question(self, question_type: str, rating: str = "PG"):
+        """Get a question from the Truth or Dare Bot API."""
+        try:
+            # Map our types to API endpoints
+            endpoint_map = {
+                "truth": "truth",
+                "dare": "dare", 
+                "wyr": "wyr",
+                "nhie": "nhie",
+                "paranoia": "paranoia"
+            }
+            
+            endpoint = endpoint_map.get(question_type)
+            if not endpoint:
+                return None, None
+                
+            url = f"{self.api_base_url}/{endpoint}"
+            if rating != "PG":
+                url += f"?rating={rating}"
+                
+            response = requests.get(url, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                question = data.get("question", "")
+                question_id = data.get("id", "API")
+                logging.debug(f"API {question_type} response: {question}")
+                return question, question_id
+        except Exception as e:
+            logging.error(f"Error getting API question: {e}")
+        return None, None
+
+    def get_llm_question(self, question_type: str, rating: str = "PG"):
+        """Get a question from LLM using existing prompts."""
+        try:
+            # Map to prompt variables
+            prompt_map = {
+                ("truth", "PG"): prompts.truth_pg_prompt,
+                ("truth", "PG13"): prompts.truth_pg13_prompt,
+                ("dare", "PG"): prompts.dare_pg_prompt,
+                ("dare", "PG13"): prompts.dare_pg13_prompt,
+                ("wyr", "PG"): prompts.wyr_prompt,
+                ("wyr", "PG13"): prompts.wyr_prompt,
+                ("nhie", "PG"): prompts.nhie_prompt,
+                ("nhie", "PG13"): prompts.nhie_prompt,
+            }
+            
+            prompt = prompt_map.get((question_type, rating))
+            if prompt:
+                question = openai_utils.generate_openai_response(prompt)
+                logging.debug(f"LLM {question_type} response: {question}")
+                return question, "AI"
+        except Exception as e:
+            logging.error(f"Error getting LLM question: {e}")
+        return None, None
+
+    def get_database_question(self, question_type: str, rating: str = "PG"):
+        """Get a question from the database."""
+        try:
+            question_data = astra_db_ops.get_random_truth_dare_question(question_type, rating)
+            if question_data:
+                question = question_data.get("question", "")
+                submitted_by = question_data.get("submitted_by", "Unknown")
+                logging.debug(f"Database {question_type} response: {question}")
+                return question, submitted_by, question_data.get("_id")
+        except Exception as e:
+            logging.error(f"Error getting database question: {e}")
+        return None, None, None
+
+    async def get_question(self, question_type: str, rating: str = "PG"):
+        """Get a question using the priority: API -> Database -> LLM with randomization."""
+        # Add randomization: 70% API, 20% Database, 10% LLM
+        rand = random.random()
+        
+        if rand < 0.7:
+            # Try API first (70% chance)
+            question, creator_id = self.get_api_question(question_type, rating)
+            if question:
+                return question, "api", creator_id, question_type, rating, None
+        
+        if rand < 0.9:
+            # Try database (20% chance)
+            question_data = self.get_database_question(question_type, rating)
+            if question_data and question_data[0]: # Check if question_data is not None and has a question
+                question, submitted_by, question_id = question_data
+                # Check if this is an AI-generated question by looking at the source
+                is_ai_question = self.is_ai_generated_question(question_id)
+                return question, "database", submitted_by, question_type, rating, question_id, is_ai_question
+        
+        # Fallback to LLM (10% chance or if others fail)
+        question, creator_id = self.get_llm_question(question_type, rating)
+        if question:
+            # Store AI-generated question in database for future use
+            question_id = self.save_ai_question(question, question_type, rating)
+            return question, "llm", creator_id, question_type, rating, question_id, True
+        
+        # If all fail, try API as final fallback
+        question, creator_id = self.get_api_question(question_type, rating)
+        if question:
+            return question, "api", creator_id, question_type, rating, None, False
+            
+        return None, None, None, None, None, None, False
+
+    def get_embed_color(self, question_type: str, rating: str):
+        """Get appropriate embed color based on question type and rating."""
+        if question_type == "truth":
+            return 0x00ff00 if rating == "PG" else 0xff6b6b  # Green for PG, Light Red for PG13
+        elif question_type == "dare":
+            return 0xff6b6b if rating == "PG" else 0xff0000  # Light Red for PG, Dark Red for PG13
+        else:
+            return 0x0099ff  # Blue for WYR, NHIE, and others
+
+    def get_question_icon(self, question_type: str):
+        """Get appropriate icon based on question type."""
+        icon_map = {
+            "truth": "🗣️",
+            "dare": "⚡", 
+            "wyr": "🤔",
+            "nhie": "🙋",
+            "paranoia": "👁️"
+        }
+        return icon_map.get(question_type, "🎯")
+
+    def get_rating_icon(self, rating: str):
+        """Get appropriate icon based on rating."""
+        return "👨‍👩‍👧‍👦" if rating == "PG" else "🔞"
+
+    def save_ai_question(self, question: str, question_type: str, rating: str):
+        """Save AI-generated question to database and return question ID."""
+        try:
+            # Save to database and get the actual database ID
+            question_id = astra_db_ops.save_truth_dare_question(
+                guild_id="global",  # AI questions are global
+                user_id="ai_system",
+                question=question,
+                question_type=question_type,
+                rating=rating,
+                source="llm",
+                submitted_by="AI"
+            )
+            
+            if question_id:
+                logging.debug(f"Saved AI question to database: {question_type} - {question[:50]}... with ID: {question_id}")
+                return question_id
+            else:
+                logging.error("Failed to save AI question to database")
+                return None
+        except Exception as e:
+            logging.error(f"Error saving AI question: {e}")
+            return None
+
+    def is_ai_generated_question(self, question_id: str):
+        """Check if a question is AI-generated by looking at its source in the database."""
+        try:
+            if not question_id:
+                return False
+            question_data = astra_db_ops.get_truth_dare_question_by_id(question_id)
+            if question_data:
+                return question_data.get("source") == "llm"
+            return False
+        except Exception as e:
+            logging.error(f"Error checking if question is AI-generated: {e}")
+            return False
+
+    @app_commands.command(name="tod", description="Start a Truth or Dare game")
+    @app_commands.choices(action=[
+        app_commands.Choice(name="Truth", value="truth"),
+        app_commands.Choice(name="Dare", value="dare"),
+        app_commands.Choice(name="Random", value="random"),
+        app_commands.Choice(name="Would You Rather", value="wyr"),
+        app_commands.Choice(name="Never Have I Ever", value="nhie"),
+        app_commands.Choice(name="Paranoia", value="paranoia")
+    ])
+    @app_commands.choices(category=[
+        app_commands.Choice(name="Family Friendly", value="PG"),
+        app_commands.Choice(name="Adult Only", value="PG13")
+    ])
+    async def slash_tod(self, interaction: discord.Interaction, action: str, category: str = "PG"):
+        """Main Truth or Dare slash command."""
+        try:
+            await interaction.response.defer()
+            
+            # Handle random action
+            if action == "random":
+                action = random.choice(["truth", "dare"])
+            
+            # Get question
+            result = await self.get_question(action, category)
+            if len(result) < 3:
+                await interaction.followup.send("❌ Sorry, I couldn't generate a question right now. Try again later!")
+                return
+                
+            question, source, creator, question_type, rating = result[:5]
+            question_id = result[5] if len(result) > 5 else None
+            is_ai_question = result[6] if len(result) > 6 else False
+            
+            if not question:
+                await interaction.followup.send("❌ Sorry, I couldn't generate a question right now. Try again later!")
+                return
+            
+            # Create embed with improved UI
+            icon = self.get_question_icon(question_type)
+            rating_icon = self.get_rating_icon(rating)
+            
+            embed = discord.Embed(
+                title=f"{icon} {question_type.title()} Question",
+                description=f"## {question}",  # Use smaller header formatting for better readability
+                color=self.get_embed_color(question_type, rating)
+            )
+            
+            # Add fields for better information display (smaller, at bottom)
+            embed.add_field(name="📋 Type", value=question_type.title(), inline=True)
+            embed.add_field(name=f"{rating_icon} Rating", value="Family Friendly" if rating == "PG" else "Adult Only", inline=True)
+            embed.add_field(name="👤 Generated by", value=creator, inline=True)
+            
+            # Create view with improved buttons
+            view = TruthDareView(action, category, self)
+            
+            # Add feedback section if from LLM or if it's an AI-generated question from database
+            if source == "llm" or is_ai_question:
+                embed.add_field(name="🤖 AI Generated", value="Help improve our AI by rating this question!", inline=False)
+                if question_id:  # Only add feedback buttons if we have a question_id
+                    view.add_item(FeedbackButton(question_id, "positive"))
+                    view.add_item(FeedbackButton(question_id, "negative"))
+            
+            await interaction.followup.send(embed=embed, view=view)
+            
+        except Exception as e:
+            logging.error(f"Error in slash_tod: {e}")
+            await interaction.followup.send("❌ An error occurred while getting your question.")
+
+    @app_commands.command(name="tod-submit", description="Submit your own Truth or Dare question")
+    @app_commands.choices(type=[
+        app_commands.Choice(name="Truth", value="truth"),
+        app_commands.Choice(name="Dare", value="dare"),
+        app_commands.Choice(name="Would You Rather", value="wyr"),
+        app_commands.Choice(name="Never Have I Ever", value="nhie")
+    ])
+    @app_commands.choices(rating=[
+        app_commands.Choice(name="Family Friendly", value="PG"),
+        app_commands.Choice(name="Adult Only", value="PG13")
+    ])
+    async def slash_tod_submit(self, interaction: discord.Interaction, type: str, rating: str, question: str):
+        """Submit a custom Truth or Dare question."""
+        try:
+            # Validate question length
+            if len(question) > 200:
+                await interaction.response.send_message("❌ Question is too long! Please keep it under 200 characters.", ephemeral=True)
+                return
+            
+            # Save to database
+            question_id = astra_db_ops.save_truth_dare_question(
+                guild_id=str(interaction.guild.id),
+                user_id=str(interaction.user.id),
+                question=question,
+                question_type=type,
+                rating=rating,
+                source="user",
+                submitted_by=interaction.user.display_name
+            )
+            
+            if question_id:
+                await interaction.response.send_message(
+                    f"✅ Thanks! Your {type} question has been submitted for review.\n"
+                    f"**Question:** {question}\n"
+                    f"**Rating:** {rating}",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message("❌ Failed to submit your question. Please try again later.", ephemeral=True)
+                
+        except Exception as e:
+            logging.error(f"Error in slash_tod_submit: {e}")
+            await interaction.response.send_message("❌ An error occurred while submitting your question.", ephemeral=True)
+
+class TruthDareView(discord.ui.View):
+    def __init__(self, current_action: str, current_rating: str, cog_instance):
+        super().__init__(timeout=None)  # No timeout - buttons work indefinitely
+        self.current_action = current_action
+        self.current_rating = current_rating
+        self.cog = cog_instance
+        
+        # Add action buttons
+        self.add_item(ActionButton("Truth", "truth", current_action, current_rating, cog_instance))
+        self.add_item(ActionButton("Dare", "dare", current_action, current_rating, cog_instance))
+        self.add_item(ActionButton("Random", "random", current_action, current_rating, cog_instance))
+        self.add_item(ActionButton("WYR", "wyr", current_action, current_rating, cog_instance))
+        self.add_item(ActionButton("NHIE", "nhie", current_action, current_rating, cog_instance))
+
+class ActionButton(discord.ui.Button):
+    def __init__(self, label: str, action: str, current_action: str, current_rating: str, cog_instance):
+        # Use consistent colors for different actions
+        style_map = {
+            "truth": discord.ButtonStyle.success,      # Green
+            "dare": discord.ButtonStyle.danger,        # Red
+            "random": discord.ButtonStyle.primary,     # Blue
+            "wyr": discord.ButtonStyle.primary,        # Blue
+            "nhie": discord.ButtonStyle.primary,       # Blue
+        }
+        
+        # Get base style
+        base_style = style_map.get(action, discord.ButtonStyle.primary)
+        
+        # If this is the current action, add an emoji prefix to indicate it's active
+        if action == current_action:
+            label = f"✓ {label}"  # Add checkmark to show it's the current action
+        
+        super().__init__(label=label, style=base_style)
+        self.action = action
+        self.current_action = current_action
+        self.current_rating = current_rating
+        self.cog = cog_instance
+
+    async def callback(self, interaction: discord.Interaction):
+        try:
+            # Immediately acknowledge the interaction to prevent timeout
+            await interaction.response.defer()
+            
+            # Handle random action
+            if self.action == "random":
+                self.action = random.choice(["truth", "dare"])
+            
+            # Get question
+            result = await self.cog.get_question(self.action, self.current_rating)
+            if len(result) < 3:
+                await interaction.followup.send("❌ Sorry, I couldn't generate a question right now. Try again later!")
+                return
+                
+            question, source, creator, question_type, rating = result[:5]
+            question_id = result[5] if len(result) > 5 else None
+            is_ai_question = result[6] if len(result) > 6 else False
+            
+            if not question:
+                await interaction.followup.send("❌ Sorry, I couldn't generate a question right now. Try again later!")
+                return
+            
+            # Create embed with improved UI
+            icon = self.cog.get_question_icon(question_type)
+            rating_icon = self.cog.get_rating_icon(rating)
+            
+            embed = discord.Embed(
+                title=f"{icon} {question_type.title()} Question",
+                description=f"## {question}",  # Use smaller header formatting for better readability
+                color=self.cog.get_embed_color(question_type, rating)
+            )
+            
+            # Add fields for better information display (smaller, at bottom)
+            embed.add_field(name="📋 Type", value=question_type.title(), inline=True)
+            embed.add_field(name=f"{rating_icon} Rating", value="Family Friendly" if rating == "PG" else "Adult Only", inline=True)
+            embed.add_field(name="👤 Generated by", value=creator, inline=True)
+            
+            # Create new view
+            view = TruthDareView(self.action, self.current_rating, self.cog)
+            
+            # Add feedback section if from LLM or if it's an AI-generated question from database
+            if source == "llm" or is_ai_question:
+                embed.add_field(name="🤖 AI Generated", value="Help improve our AI by rating this question!", inline=False)
+                if question_id:  # Only add feedback buttons if we have a question_id
+                    view.add_item(FeedbackButton(question_id, "positive"))
+                    view.add_item(FeedbackButton(question_id, "negative"))
+            
+            await interaction.followup.send(embed=embed, view=view)
+            
+        except Exception as e:
+            logging.error(f"Error in ActionButton callback: {e}")
+            # Try to send error message
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ An error occurred while getting your question.", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ An error occurred while getting your question.")
+            except:
+                pass  # Interaction might be expired
+
+class FeedbackButton(discord.ui.Button):
+    def __init__(self, question_id: str, feedback_type: str):
+        if feedback_type == "positive":
+            super().__init__(label="👍 Good", style=discord.ButtonStyle.success, custom_id=f"feedback_pos_{question_id}")
+        else:
+            super().__init__(label="👎 Bad", style=discord.ButtonStyle.danger, custom_id=f"feedback_neg_{question_id}")
+        
+        self.question_id = question_id
+        self.feedback_type = feedback_type
+
+    async def callback(self, interaction: discord.Interaction):
+        try:
+            # Record feedback
+            success = astra_db_ops.record_question_feedback(self.question_id, self.feedback_type)
+            
+            if success:
+                if self.feedback_type == "positive":
+                    await interaction.response.send_message("✅ Thanks for the positive feedback! This question will be saved for future use.", ephemeral=True)
+                else:
+                    await interaction.response.send_message("✅ Thanks for the feedback! We'll use this to improve our AI.", ephemeral=True)
+            else:
+                await interaction.response.send_message("❌ Failed to record feedback. Please try again.", ephemeral=True)
+                
+        except Exception as e:
+            logging.error(f"Error in FeedbackButton callback: {e}")
+            # Try to send error message
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ An error occurred while recording feedback.", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ An error occurred while recording feedback.")
+            except:
+                pass  # Interaction might be expired
+
+async def setup(bot):
+    await bot.add_cog(TruthDareCog(bot))

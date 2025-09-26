@@ -8,7 +8,7 @@ It provides functions to create individual collections and a main function to cr
 import logging
 import os
 import sys
-from .db_connection import get_db_connection, ASTRA_NAMESPACE
+from db_connection import get_db_connection, ASTRA_NAMESPACE
 
 # Add the parent directory to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -20,11 +20,19 @@ def create_collection(collection_name: str):
         if database is None:
             return False
 
-        # Create collection with check_exists=True
+        # Check if collection exists first
+        try:
+            existing_collection = database.get_collection(collection_name)
+            logging.info(f"Collection '{collection_name}' already exists")
+            return True
+        except:
+            # Collection doesn't exist, create it
+            pass
+        
+        # Create collection
         database.create_collection(
             name=collection_name,
-            keyspace=ASTRA_NAMESPACE,
-            check_exists=True
+            keyspace=ASTRA_NAMESPACE
         )
         logging.info(f"Successfully created collection: {collection_name}")
         return True
@@ -76,6 +84,14 @@ def create_server_collections():
     for collection in collections:
         create_collection(collection)
 
+def create_truth_dare_collections():
+    """Create collections related to Truth and Dare game."""
+    collections = [
+        "truth_dare_questions"
+    ]
+    for collection in collections:
+        create_collection(collection)
+
 def create_all_collections():
     """Create all collections for the Discord bot."""
     logging.info("Starting collection creation process...")
@@ -86,6 +102,7 @@ def create_all_collections():
     create_verification_collections()
     create_user_collections()
     create_server_collections()
+    create_truth_dare_collections()
     
     logging.info("Collection creation process completed!")
 
