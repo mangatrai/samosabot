@@ -164,7 +164,7 @@ def generate_openai_response(prompt, intent="text", model=None):
         )},
                     {"role": "user", "content": prompt}
                     ],
-                temperature=1.5,
+                temperature=0.9,
                 top_p=0.9,
                 max_tokens=1000
             )

@@ -30,64 +30,41 @@ qotd_prompt = (
     f"Here is a random number to force variation: {random_number}. Do not include this number in your final response."
 )
 
-#jokes prompt
-joke_insult_prompt = f"""
-Generate a brutally scathing and cutting insult joke that delivers a real verbal smack. The joke should be aggressively witty and uniquely insulting, ensuring it doesn't come off as a soft blow. It must be playful yet ruthless, and the punchline should hit hard with clever sarcasm. Avoid generic or mild responses.
+#jokes prompt - Hybrid approach: simple but with variation and creativity instructions
+joke_insult_prompt = f"""Generate a joke that ends with a witty insult or burn. The punchline should be a clever way to make fun of someone. Think of jokes like: "Why did the smart person avoid you? Because they didn't want to catch stupid!" or "What do you call someone who's always wrong? You!"
 
-Respond strictly in JSON format:
+Respond in JSON format:
 {{
   "setup": "Setup sentence here",
   "punchline": "Punchline sentence here"
 }}
 
-Here is a random number to force variation: {random_number}
-Do not return the random number in the response.
-"""
+Random variation: {random_number}"""
 
-joke_dad_prompt = f"""
-Generate a fresh, witty, and truly unique dad joke that is short and to the point. The joke should have a concise setup and a punchy punchline that delivers a quick, humorous twist. Avoid common, overused jokes and explore a wide range of topics or wordplays to keep it surprising.
+joke_dad_prompt = f"""Generate a fresh, witty dad joke with creative wordplay. Avoid common jokes like scarecrow, bicycle, or atoms. Use unexpected topics and clever twists.
 
-Respond strictly in JSON format:
+Respond in JSON format:
+{{
+  "setup": "Setup sentence here", 
+  "punchline": "Punchline sentence here"
+}}
+
+Random variation: {random_number}"""
+
+joke_gen_prompt = f"""Generate a creative, unpredictable joke. Use diverse topics like technology, relationships, professions, or daily life. Avoid common jokes and ensure originality.
+
+Respond in JSON format:
 {{
   "setup": "Setup sentence here",
   "punchline": "Punchline sentence here"
 }}
 
-Here is a random number to force variation: {random_number}
-Do not return the random number in the response.
-"""
+Random variation: {random_number}"""
 
-joke_gen_prompt = f"""
-Tell me a fresh, unpredictable, and humorous joke. Use different topics like animals, professions, technology, relationships, and daily life.
-Do not repeat previous jokes.
+# Pickup prompt - Hybrid approach: simple but with creativity and variation
+pickup_prompt = f"""Generate a witty, creative pickup line. Use unexpected twists, clever wordplay, and creative metaphors. Vary topics and ensure originality.
 
-Respond strictly in JSON format:
-{{
-  "setup": "Setup sentence here",
-  "punchline": "Punchline sentence here"
-}}
-
-Here is a random number to force variation: {random_number}
-Do not return the random number in the response.
-"""
-
-# Pickup prompt
-pickup_prompt = (
-    f"Generate a bold, irresistibly flirty, and exceptionally witty pickup line. "
-    f"The line should be **fun, cheeky, and playful** while avoiding anything offensive or inappropriate. "
-    f"Think of lines that would make someone **smirk, blush, or laugh out loud.** "
-    f"Ensure each response is **completely original**—avoid generic or predictable themes like WiFi, computers, and common clichés. "
-    f"Use unexpected twists, pop culture nods, double entendres, clever wordplay, and **creative metaphors**. "
-    f"Vary the topics—think of romance, adventure, luxury, art, literature, the supernatural, music, and even historical figures. "
-    f"Make each line sound **fresh and unique**, ensuring no slight variation of previous ones. "
-    f"Here is a random number to force variation: {random_number} (do not return this number in the response). "
-    f"Examples:\n"
-    f"- 'Are you French? Because Eiffel for you.'\n"
-    f"- 'If kisses were snowflakes, I'd send you a blizzard.'\n"
-    f"- 'Are you made of copper and tellurium? Because you're Cu-Te.'\n"
-    f"- 'I was blinded by your beauty… but I'm fine now. Hey, what's your name again?'\n"
-    f"- 'Are you an unfinished novel? Because I just can't put you down.' "
-)
+Random variation: {random_number}"""
 
 ask_samosa_instruction_prompt = (
     "Your job is to analyze the following prompt and determine two things. "

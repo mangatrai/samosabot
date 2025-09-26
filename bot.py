@@ -21,6 +21,7 @@ Running this module starts the bot and connects it to Discord using the specifie
 from configs import setup_logger
 import discord
 import os
+import requests
 from discord.ext import commands, tasks
 from discord import app_commands
 from dotenv import load_dotenv
@@ -36,11 +37,24 @@ from configs.version import __version__
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 PREFIX = os.getenv("BOT_PREFIX", "!")  # Default prefix if not set
+RIZZAPI_URL = os.getenv("RIZZAPI_URL")
 # Load environment variables for AstraDB
 ASTRA_API_ENDPOINT = os.getenv("ASTRA_API_ENDPOINT")  # AstraDB API endpoint
 ASTRA_NAMESPACE = os.getenv("ASTRA_NAMESPACE")  # Your namespace (like a database)
 ASTRA_API_TOKEN = os.getenv("ASTRA_API_TOKEN")  # API authentication token
 EXTENSIONS = os.getenv("EXTENSIONS", "").split(",")
+
+# Function to get pickup line from RizzAPI
+def get_rizzapi_pickup():
+    """Get pickup line from RizzAPI, return None if fails"""
+    try:
+        response = requests.get(RIZZAPI_URL, timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('text', None)
+    except Exception as e:
+        logging.warning(f"RizzAPI failed: {e}")
+    return None
 
 # Intents & Bot Setup
 intents = discord.Intents.default()
@@ -193,7 +207,11 @@ async def qotd(ctx):
 # Prefix Command for Pick-up Line
 @bot.command(name="pickup")
 async def pickup(ctx):
-    content = openai_utils.generate_openai_response(pickup_prompt)
+    # Try RizzAPI first
+    content = get_rizzapi_pickup()
+    if content is None:
+        # Fallback to AI
+        content = openai_utils.generate_openai_response(pickup_prompt)
     await ctx.send(f"💘 **Pick-up Line:** {content}")
 
 #Compliment Machine
@@ -268,7 +286,11 @@ async def slash_qotd(interaction: discord.Interaction):
 # Slash Command with Pickup
 @tree.command(name="pickup", description="Get a pick-up line")
 async def slash_pickup(interaction: discord.Interaction):
-    content = openai_utils.generate_openai_response(pickup_prompt)
+    # Try RizzAPI first
+    content = get_rizzapi_pickup()
+    if content is None:
+        # Fallback to AI
+        content = openai_utils.generate_openai_response(pickup_prompt)
     await interaction.response.send_message(f"💘 **Pick-up Line:** {content}")
 
 @bot.event
