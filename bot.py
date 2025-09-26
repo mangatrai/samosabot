@@ -38,10 +38,7 @@ load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 PREFIX = os.getenv("BOT_PREFIX", "!")  # Default prefix if not set
 RIZZAPI_URL = os.getenv("RIZZAPI_URL")
-# Load environment variables for AstraDB
-ASTRA_API_ENDPOINT = os.getenv("ASTRA_API_ENDPOINT")  # AstraDB API endpoint
-ASTRA_NAMESPACE = os.getenv("ASTRA_NAMESPACE")  # Your namespace (like a database)
-ASTRA_API_TOKEN = os.getenv("ASTRA_API_TOKEN")  # API authentication token
+
 EXTENSIONS = os.getenv("EXTENSIONS", "").split(",")
 
 # Function to get pickup line from RizzAPI
