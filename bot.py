@@ -357,6 +357,24 @@ async def on_guild_remove(guild: discord.Guild):
     astra_db_ops.register_or_update_guild(guild.id, guild.name,"LEFT")
 
 @bot.event
+async def on_reaction_add(reaction, user):
+    """Handle emoji reactions for Truth/Dare feedback."""
+    if user.bot:
+        return  # Ignore bot reactions
+    
+    if reaction.emoji in ["👍", "👎"]:
+        try:
+            # Get message metadata
+            message_data = astra_db_ops.get_truth_dare_message_metadata(str(reaction.message.id))
+            if message_data:
+                # Update feedback counter
+                feedback_type = "positive" if reaction.emoji == "👍" else "negative"
+                astra_db_ops.record_question_feedback(message_data["question_id"], feedback_type)
+                logging.debug(f"Recorded {feedback_type} feedback for question {message_data['question_id']} from user {user.id}")
+        except Exception as e:
+            logging.error(f"Error handling reaction: {e}")
+
+@bot.event
 async def on_command_error(ctx, error):
     """
     Global error handler for command invocation errors.

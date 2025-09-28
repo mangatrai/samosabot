@@ -815,3 +815,40 @@ def record_question_feedback(question_id: str, feedback: str):
     except Exception as e:
         logging.error(f"Error recording question feedback: {e}")
         return False
+
+def save_truth_dare_message(message_id: str, question_id: str, guild_id: str, channel_id: str):
+    """Save truth/dare message metadata for reaction tracking."""
+    try:
+        collection = get_truth_dare_questions_collection()
+        if collection is None:
+            return False
+        
+        # Store message metadata in a separate document
+        message_doc = {
+            "message_id": message_id,
+            "question_id": question_id,
+            "guild_id": guild_id,
+            "channel_id": channel_id,
+            "created_at": datetime.datetime.utcnow().isoformat()
+        }
+        
+        collection.insert_one(message_doc)
+        logging.debug(f"Saved truth/dare message metadata: {message_id} -> {question_id}")
+        return True
+    except Exception as e:
+        logging.error(f"Error saving truth/dare message metadata: {e}")
+        return False
+
+def get_truth_dare_message_metadata(message_id: str):
+    """Get truth/dare message metadata by message ID."""
+    try:
+        collection = get_truth_dare_questions_collection()
+        if collection is None:
+            return None
+        
+        # Find message metadata document
+        message_doc = collection.find_one({"message_id": message_id})
+        return message_doc
+    except Exception as e:
+        logging.error(f"Error getting truth/dare message metadata: {e}")
+        return None
