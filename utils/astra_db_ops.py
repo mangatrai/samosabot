@@ -721,12 +721,12 @@ def get_random_truth_dare_question(question_type: str, rating: str = "PG"):
         if collection is None:
             return None
         
-        # Find all questions of the specified type and rating with positive feedback > negative feedback
+        # Find all questions of the specified type and rating with positive feedback >= negative feedback
         filter_query = {
             "type": question_type, 
             "rating": rating, 
             "approved": True,
-            "$expr": {"$gt": ["$positive_feedback", "$negative_feedback"]}
+            "$expr": {"$gte": ["$positive_feedback", "$negative_feedback"]}
         }
         all_questions = list(collection.find(filter_query))
         

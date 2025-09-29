@@ -202,7 +202,7 @@ class TruthDareCog(commands.Cog):
             
             # Handle random action
             if action == "random":
-                action = random.choice(["truth", "dare"])
+                action = random.choice(["truth", "dare", "wyr", "nhie", "paranoia"])
             
             # Get question
             result = await self.get_question(action, category)

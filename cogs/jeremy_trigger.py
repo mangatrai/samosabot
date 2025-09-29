@@ -12,7 +12,7 @@ import re
 from cogs.joke import get_dad_joke
 
 # Configuration
-JEREMY_FUZZY_THRESHOLD = 0.8   # Fuzzy matching threshold
+JEREMY_FUZZY_THRESHOLD = 0.7   # Fuzzy matching threshold (lowered for better matching)
 JEREMY_COOLDOWN_MINUTES = 10   # Cooldown between triggers per channel
 
 # Track last trigger time per channel
@@ -20,7 +20,8 @@ last_triggered = {}
 
 def fuzzy_match(text, target, threshold=JEREMY_FUZZY_THRESHOLD):
     """Check if text contains a fuzzy match for target"""
-    words = re.findall(r'\b\w+\b', text.lower())
+    # Use regex that handles hyphens and other word characters
+    words = re.findall(r'\b[\w-]+\b', text.lower())
     for word in words:
         similarity = SequenceMatcher(None, word, target.lower()).ratio()
         if similarity >= threshold:
@@ -42,6 +43,12 @@ def update_cooldown(channel_id):
 def check_text_for_jeremy(text):
     """Check if text contains Jeremy or variations using fuzzy matching"""
     jeremy_variations = ["jeremy", "jerry", "jerm", "j-dawg", "jere"]
+    
+    # Check for exact matches first (for hyphenated names)
+    text_lower = text.lower()
+    for variation in jeremy_variations:
+        if variation in text_lower:
+            return True, variation, 1.0
     
     # Use fuzzy matching for all variations
     for variation in jeremy_variations:
