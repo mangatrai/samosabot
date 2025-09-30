@@ -1,6 +1,6 @@
 """
 Jeremy Trigger System - Discord Cog
-Triggers dad jokes when "Jeremy" or variations are mentioned in text or @ mentions
+Triggers dad jokes when "Jeremy" or variations are detected in message text
 """
 
 import discord
@@ -13,7 +13,7 @@ from cogs.joke import get_dad_joke
 
 # Configuration
 JEREMY_FUZZY_THRESHOLD = 0.8   # Fuzzy matching threshold (increased to reduce false positives)
-JEREMY_COOLDOWN_MINUTES = 10   # Cooldown between triggers per channel
+JEREMY_COOLDOWN_MINUTES = 15   # Cooldown between triggers per channel
 JEREMY_GUILD_ID = 1310795271692750909  # Only trigger in this specific guild
 
 # Track last trigger time per channel
@@ -62,33 +62,9 @@ def check_text_for_jeremy(text):
     
     return False, None, 0
 
-def check_mentions_for_jeremy(message):
-    """Check if any mentioned users match Jeremy"""
-    jeremy_variations = ["jeremy", "jerry", "jerm", "j-dawg", "jere"]
-    
-    for user in message.mentions:
-        # Check display name
-        for variation in jeremy_variations:
-            if variation in user.display_name.lower():
-                return True, user.display_name, 1.0
-            # Check fuzzy match
-            match_found, matched_word, similarity = fuzzy_match(user.display_name, variation)
-            if match_found:
-                return True, matched_word, similarity
-        
-        # Check username
-        for variation in jeremy_variations:
-            if variation in user.name.lower():
-                return True, user.name, 1.0
-            # Check fuzzy match
-            match_found, matched_word, similarity = fuzzy_match(user.name, variation)
-            if match_found:
-                return True, matched_word, similarity
-    
-    return False, None, 0
 
 async def handle_jeremy_trigger(message):
-    """Main handler for Jeremy triggers"""
+    """Main handler for Jeremy triggers - text detection only"""
     # Skip bot messages
     if message.author.bot:
         return
@@ -97,7 +73,7 @@ async def handle_jeremy_trigger(message):
     if message.guild is None or message.guild.id != JEREMY_GUILD_ID:
         return
     
-    # Check text content first
+    # Check text content for Jeremy variations
     text_match, matched_word, similarity = check_text_for_jeremy(message.content)
     if text_match:
         logging.info(f"Jeremy trigger word '{matched_word}' found in text (similarity: {similarity:.2f}) by {message.author.name} in channel {message.channel.id}")
@@ -109,22 +85,9 @@ async def handle_jeremy_trigger(message):
         
         await trigger_jeremy_joke(message, matched_word, similarity, "text")
         return
-    
-    # Check mentions
-    mention_match, matched_word, similarity = check_mentions_for_jeremy(message)
-    if mention_match:
-        logging.info(f"Jeremy trigger word '{matched_word}' found in mention (similarity: {similarity:.2f}) by {message.author.name} in channel {message.channel.id}")
-        
-        # Check cooldown
-        if is_on_cooldown(message.channel.id):
-            logging.info(f"Jeremy trigger blocked by cooldown in channel {message.channel.id}")
-            return
-        
-        await trigger_jeremy_joke(message, matched_word, similarity, "mention")
-        return
 
 async def trigger_jeremy_joke(message, matched_word, similarity, source_type):
-    """Trigger dad joke for Jeremy mention"""
+    """Trigger dad joke for Jeremy text detection"""
     try:
         # Get dad joke
         joke = get_dad_joke()

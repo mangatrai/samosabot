@@ -1,6 +1,6 @@
 """
 Jen Trigger System - Discord Cog
-Triggers animal facts when "Jen" or variations are mentioned in text or @ mentions
+Triggers animal facts when "Jen" or variations are detected in message text
 """
 
 import discord
@@ -14,7 +14,7 @@ from cogs.facts import FactsCog
 
 # Configuration
 JEN_FUZZY_THRESHOLD = 0.8   # Fuzzy matching threshold (same as Jeremy)
-JEN_COOLDOWN_MINUTES = 10   # Cooldown between triggers per channel
+JEN_COOLDOWN_MINUTES = 15   # Cooldown between triggers per channel
 JEN_GUILD_ID = 1310795271692750909  # Only trigger in this specific guild
 
 # Track last trigger time per channel
@@ -66,31 +66,9 @@ def check_text_for_jen(text):
     
     return False, None, 0
 
-def check_mentions_for_jen(message):
-    """Check if any mentioned users match Jen"""
-    jen_variations = ["jen", "jennifer", "jenny", "j-dawg", "jenn"]
-    
-    for user in message.mentions:
-        # Check display name
-        for variation in jen_variations:
-            if variation in user.display_name.lower():
-                return True, user.display_name, 1.0
-            match_found, matched_word, similarity = fuzzy_match(user.display_name, variation)
-            if match_found:
-                return True, matched_word, similarity
-        
-        # Check username
-        for variation in jen_variations:
-            if variation in user.name.lower():
-                return True, user.name, 1.0
-            match_found, matched_word, similarity = fuzzy_match(user.name, variation)
-            if match_found:
-                return True, matched_word, similarity
-    
-    return False, None, 0
 
 async def handle_jen_trigger(message):
-    """Main handler for Jen triggers"""
+    """Main handler for Jen triggers - text detection only"""
     # Skip bot messages
     if message.author.bot:
         return
@@ -99,7 +77,7 @@ async def handle_jen_trigger(message):
     if message.guild is None or message.guild.id != JEN_GUILD_ID:
         return
     
-    # Check text content first
+    # Check text content for Jen variations
     text_match, matched_word, similarity = check_text_for_jen(message.content)
     if text_match:
         logging.info(f"Jen trigger word '{matched_word}' found in text (similarity: {similarity:.2f}) by {message.author.name} in channel {message.channel.id}")
@@ -111,22 +89,9 @@ async def handle_jen_trigger(message):
         
         await trigger_jen_animal_fact(message, matched_word, similarity, "text")
         return
-    
-    # Check mentions
-    mention_match, matched_word, similarity = check_mentions_for_jen(message)
-    if mention_match:
-        logging.info(f"Jen trigger word '{matched_word}' found in mention (similarity: {similarity:.2f}) by {message.author.name} in channel {message.channel.id}")
-        
-        # Check cooldown
-        if is_on_cooldown(message.channel.id):
-            logging.info(f"Jen trigger blocked by cooldown in channel {message.channel.id}")
-            return
-        
-        await trigger_jen_animal_fact(message, matched_word, similarity, "mention")
-        return
 
 async def trigger_jen_animal_fact(message, matched_word, similarity, source_type):
-    """Trigger animal fact for Jen mention"""
+    """Trigger animal fact for Jen text detection"""
     try:
         # Get animal fact using facts cog
         if facts_cog is None:
