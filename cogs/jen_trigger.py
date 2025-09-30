@@ -7,6 +7,7 @@ import discord
 from discord.ext import commands
 import logging
 import time
+import random
 from difflib import SequenceMatcher
 import re
 from cogs.facts import FactsCog
@@ -49,7 +50,7 @@ facts_cog = None
 
 def check_text_for_jen(text):
     """Check if text contains Jen or variations using fuzzy matching"""
-    jen_variations = ["jen", "jennifer", "jenny", "jenn"]
+    jen_variations = ["jen", "jennifer", "jenny", "jenn","jenticles","jenkin"]
     
     # Check for exact matches first (for hyphenated names)
     text_lower = text.lower()
