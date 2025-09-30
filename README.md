@@ -1,165 +1,188 @@
-# 🤖 Discord Bot with OpenAI & AstraDB
+# 🤖 Discord Bot - User Guide
 
-A feature-rich Discord bot that brings **Trivia Games, QOTD (Question of the Day), AI-generated Jokes, Pickup Lines, Roasts, Compliments, and Fortune Telling** to your server. This bot integrates **OpenAI for dynamic content** and **AstraDB for persistent storage**. Additionally, the bot now records server registrations including installation date, current status (JOINED/LEFT), and last updated timestamp.
+A feature-rich Discord bot that brings **Trivia Games, Truth or Dare, Random Facts, AI-generated Jokes, Pickup Lines, Roasts, and more** to your server!
 
 ---
 
 ## 🚀 Features
 
-- 🎉 **Trivia Game** – Play interactive trivia with automatic score tracking and leaderboards.
-- 🏆 **Trivia Leaderboard** – View the top trivia players in the server.
-- 📢 **QOTD (Question of the Day)** – Generate and schedule daily thought-provoking questions.
-- 🤣 **AI-Powered Jokes** – Fetch dad jokes, insult jokes, and general humor from OpenAI.
-- 💘 **Pickup Lines** – Generate flirty and witty pickup lines.
-- 🔥 **Roast & Compliment Machine** – Generate playful yet biting AI-powered roasts and compliments.
-- 🔮 **AI Fortune Teller** – Receive a fun AI-generated fortune about your future.
-- 🔄 **Scheduled Bot Status Updates** – Sends periodic bot status messages to a designated channel.
-- 🌐 **Server Registration & Monitoring** – Automatically records every server (guild) where the bot is installed, capturing the guild ID, name, installation date, current status (JOINED/LEFT), and last updated timestamp.
-- 📜 **List Servers** – Use the `!listservers` command to display all registered servers along with their details.
+- 🎉 **Trivia Game** – Play interactive trivia with automatic score tracking and leaderboards
+- 🎯 **Truth or Dare** – Interactive party game with user submissions and feedback
+- 📚 **Random Facts** – Get interesting facts about animals and general topics
+- 🤣 **AI-Powered Jokes** – Multiple joke categories including dad jokes, dark humor, and more
+- 💘 **Pickup Lines** – Generate flirty and witty pickup lines
+- 🔥 **Roast Machine** – Generate playful AI-powered roasts
+- 🔮 **AI Fortune Teller** – Receive fun AI-generated fortunes
+- 📢 **Question of the Day** – Daily thought-provoking questions
 
 ---
 
-## 🎮 Bot Commands
+## 🎮 Commands
 
 ### 🎉 Trivia Game
 | Command | Description |
 |---------|-------------|
-| `!trivia start <category>` | Start a trivia game in the selected category. |
-| `!trivia stop` | Stop an ongoing trivia game. |
-| `!mystats` | View your trivia stats. |
-| `!trivia leaderboard` | View the top trivia players on the server. |
+| `/trivia start <category>` | Start a trivia game |
+| `/trivia stop` | Stop current trivia game |
+| `/trivia leaderboard` | View top players |
+| `!trivia start <category>` | Start trivia (prefix command) |
+| `!trivia stop` | Stop trivia (prefix command) |
+| `!mystats` | View your trivia stats |
 
-| Slash Command | Description |
-|--------------|-------------|
-| `/trivia start <category>` | Start a trivia game in the selected category. |
-| `/trivia stop` | Stop an ongoing trivia game. |
-| `/trivia leaderboard` | View the top trivia players on the server. |
+**Categories:** History, Science, Geography, Sports, Movies, Animals, Music, Video Games, Technology, Literature, Mythology, Food & Drink, Celebrities, Riddles, Space, Cars, Marvel & DC, Holidays
 
-#### 🎯 Available Trivia Categories:
-- History
-- Science
-- Geography
-- Sports
-- Movies
-- Animals
-- Music
-- Video Games
-- Technology
-- Literature
-- Mythology
-- Food & Drink
-- Celebrities
-- Riddles & Brain Teasers
-- Space & Astronomy
-- Cars & Automobiles
-- Marvel & DC (Comics)
-- Holidays & Traditions
-
-#### ⚡ Trivia Speed Settings:
-- **Slow-Paced** (Default): More time to think and answer questions
-- **Fast-Paced**: Quick questions with shorter answer times
-
-To start a fast-paced trivia game, use:
-- `!trivia start <category> fast` (Prefix command)
-- `/trivia start <category> speed:Fast` (Slash command)
+**Speed Options:** Normal (default) or Fast-paced
 
 ---
 
-### 📢 Question of the Day (QOTD)
+### 🎯 Truth or Dare
 | Command | Description |
 |---------|-------------|
-| `!setqotdchannel <channel>` | Set the QOTD channel. |
-| `!startqotd` | Start the daily QOTD schedule. |
-| `!qotd` | Get a random question. |
+| `/tod` | Start a Truth or Dare game |
+| `/tod-submit` | Submit your own questions |
 
-| Slash Command | Description |
-|--------------|-------------|
-| `/qotd` | Get a random question. |
+**Game Types:**
+- **Truth** – Answer personal questions
+- **Dare** – Complete fun challenges  
+- **Would You Rather** – Make tough choices
+- **Never Have I Ever** – Share experiences
+- **Paranoia** – Spooky questions
+
+**Rating Options:** Family-friendly (PG) or Adult (PG-13)
 
 ---
 
-### 🤣 AI Jokes
+### 📚 Random Facts
 | Command | Description |
 |---------|-------------|
-| `!joke dad` | Get a dad joke. |
-| `!joke insult` | Get a witty insult joke. |
-| `!joke` | Get a general joke. |
+| `/fact` | Get a random general fact |
+| `/fact animals` | Get a random animal fact |
+| `!fact` | Prefix command version |
+
+**Sources:** Real APIs + AI-generated facts as backup
+
+---
+
+### 🤣 Jokes
+| Command | Description |
+|---------|-------------|
+| `/joke dad` | Get a dad joke |
+| `/joke insult` | Get a witty insult joke |
+| `/joke general` | Get a general joke |
+| `/joke dark` | Get a dark humor joke |
+| `/joke spooky` | Get a spooky joke |
+| `!joke <category>` | Prefix command version |
 
 ---
 
 ### 💘 Pickup Lines
 | Command | Description |
 |---------|-------------|
-| `!pickup` | Get a fun AI-generated pickup line. |
+| `/pickup` | Get a fun pickup line |
+| `!pickup` | Prefix command version |
 
 ---
 
-### 🔥 Roast & Compliment Machine
+### 🔥 Roast Machine
 | Command | Description |
 |---------|-------------|
-| `!roast @user` | Generate a playful AI-powered roast for a user. |
-| `!compliment @user` | Generate a nice AI-powered compliment for a user. |
+| `/roast @user` | Generate a playful roast |
+| `!roast @user` | Prefix command version |
 
 ---
 
-### 🔮 AI Fortune Teller
+### 🔮 Fortune Teller
 | Command | Description |
 |---------|-------------|
-| `!fortune` | Receive a fun AI-generated fortune about your future. |
+| `!fortune` | Get an AI-generated fortune |
 
 ---
 
-### 🔄 Bot Status
+### 💝 Compliments
 | Command | Description |
 |---------|-------------|
-| `!samosa botstatus <channel>` | Set a bot status channel. |
-
-| Slash Command | Description |
-|--------------|-------------|
-| `/samosa botstatus <channel>` | Set a bot status channel. |
+| `!compliment @user` | Generate a nice compliment for a user |
 
 ---
 
-### 🌐 Server Registration & Monitoring
+### 📢 Question of the Day
 | Command | Description |
 |---------|-------------|
-| `!listservers` | List all registered servers with details such as guild name, ID, installation date, status, and last updated timestamp. |
+| `/qotd` | Get a random thought-provoking question |
+| `!qotd` | Prefix command version |
+| `!setqotdchannel <channel>` | Set the QOTD channel (admin) |
+| `!startqotd` | Start the daily QOTD schedule (admin) |
 
 ---
 
-## 🎯 Built With
+### 🔧 Utility Commands
+| Command | Description |
+|---------|-------------|
+| `/ask <question>` | Ask the AI anything or generate images |
+| `!asksamosa <question>` | Ask the AI (prefix command) |
+| `!ping` | Check bot response time |
+| `/verification` | Configure server verification |
+| `/verification_status` | Check verification settings |
+| `/setup_wizard` | Start verification setup wizard |
 
-| Technology      | Description                                       |
-|-----------------|---------------------------------------------------|
-| **Python**      | Core programming language.                        |
-| **Discord.py**  | Discord bot framework for prefix and slash commands. |
-| **OpenAI API**  | AI-generated dynamic content.                     |
-| **AstraDB**     | Database for persistent storage via astrapy.       |
+---
+
+### ⚙️ Admin Commands
+| Command | Description |
+|---------|-------------|
+| `/samosa botstatus <channel>` | Set bot status channel |
+| `!samosa botstatus <channel>` | Set bot status (prefix) |
+| `!listservers` | List all registered servers |
 
 ---
 
-## 🔒 Verification & Setup
+## 🎯 How to Use
 
-### Required Bot Permissions
-- **Send Messages**: To send trivia questions, results, and other bot messages
-- **Embed Links**: To display formatted trivia questions and results
-- **Add Reactions**: For interactive elements
-- **View Channels**: To see messages in channels where trivia is played
-- **Read Message History**: To track user responses
-- **Use Slash Commands**: To register and use slash commands
+### Getting Started
+1. **Invite the bot** to your server with proper permissions
+2. **Use slash commands** (recommended) - type `/` and select the bot
+3. **Use prefix commands** - type `!` followed by the command
 
-### Server Roles
-- **Bot Role**: Should have permissions to send messages, embed links, and add reactions
-- **User Role**: Should have permissions to view channels and send messages
-- **Admin Role**: Should have permissions to manage channels and roles
+### Truth or Dare Game Flow
+1. Use `/tod` to start a game
+2. Click **Truth**, **Dare**, or **Random** buttons
+3. Answer the question or complete the challenge
+4. Click buttons to get new questions
+5. Use 👍/👎 reactions to rate AI-generated questions
 
-### Verification Commands
-| Slash Command | Description |
-|--------------|-------------|
-| `/verification` | Configure verification settings (enable/disable/setup) |
-| `/verification_status` | Check current verification settings for the server |
-| `/setup_wizard` | Start the verification setup wizard to configure the system step by step |
+### Trivia Game Flow
+1. Use `/trivia start <category>` to begin
+2. Answer questions by typing your response
+3. View your stats with `!mystats`
+4. Check leaderboards with `/trivia leaderboard`
 
-The verification system automatically creates a temporary verification channel for new members and guides them through the verification process.
+### Special Features
+- **Interactive Buttons** – Many commands use clickable buttons for easy navigation
+- **Emoji Reactions** – Rate content quality with 👍/👎 reactions
+- **User Submissions** – Submit your own Truth or Dare questions
+- **Smart Fallbacks** – If APIs fail, AI generates content automatically
 
 ---
+
+## 🔒 Required Permissions
+
+The bot needs these permissions to work properly:
+- **Send Messages** – To respond to commands
+- **Embed Links** – To display formatted content
+- **Add Reactions** – For interactive elements
+- **Use Slash Commands** – For modern command interface
+- **Read Message History** – To track responses and reactions
+
+---
+
+## 💡 Tips
+
+- **Use slash commands** for the best experience - they're faster and more reliable
+- **Try different joke categories** - each has its own style and humor
+- **Submit your own Truth or Dare questions** - help grow the community database
+- **Rate AI content** - your feedback helps improve the bot's responses
+- **Check trivia leaderboards** - compete with friends for the top spot!
+
+---
+
+*Enjoy using the bot! For issues or suggestions, contact the bot administrator.*
