@@ -122,3 +122,16 @@ nhie_prompt = (
     "Keep it under 15 words. Make it interesting but not too personal. "
     "Examples: 'Never have I ever been to a concert' or 'Never have I ever lied about my age'"
 )
+
+# Facts prompts
+fact_general_prompt = (
+    "Generate a fun, interesting random fact about science, history, nature, or technology. "
+    "Keep it under 50 words and make it educational and entertaining. "
+    "Examples: 'The human brain contains approximately 86 billion neurons' or 'Honey never spoils - archaeologists have found edible honey in ancient Egyptian tombs'"
+)
+
+fact_animals_prompt = (
+    "Generate a fun, interesting fact about animals (cats, dogs, or other pets). "
+    "Keep it under 50 words and make it educational and entertaining. "
+    "Examples: 'Cats spend 70% of their lives sleeping' or 'Dogs have a sense of smell 40 times stronger than humans'"
+)
