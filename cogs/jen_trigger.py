@@ -93,38 +93,69 @@ async def handle_jen_trigger(message):
 async def trigger_jen_animal_fact(message, matched_word, similarity, source_type):
     """Trigger animal fact for Jen text detection"""
     try:
-        # Get animal fact using facts cog
+        # Get animal fact using facts cog with new return format
         if facts_cog is None:
             logging.error("Facts cog not initialized")
             return
             
-        fact = facts_cog.get_animal_fact()
-        if not fact:
+        result = facts_cog.get_animal_fact()
+        if not result or not result[0]:
             logging.warning("Failed to get animal fact for Jen trigger")
             return
+        
+        content, source, fact_id, submitted_by = result
         
         # Fun, punchy responses that match Jen's personality
         if similarity < 1.0:
             # Fuzzy match - playful acknowledgment
-            responses = [
-                f"Ooh, I heard '{matched_word}' - that's close enough to Jen! 🐾 {fact}",
-                f"'{matched_word}'? Close enough! Jen would love this! 🐕 {fact}",
-                f"Did someone say '{matched_word}'? That sounds like Jen! 🐱 {fact}"
+            trigger_messages = [
+                f"Ooh, I heard '{matched_word}' - that's close enough to Jen! 🐾",
+                f"'{matched_word}'? Close enough! Jen would love this! 🐕",
+                f"Did someone say '{matched_word}'? That sounds like Jen! 🐱"
             ]
         else:
             # Exact match - direct and fun
-            responses = [
-                f"Jen detected! Time for an animal fact! 🐾 {fact}",
-                f"Ah, Jen! The animal lover herself! 🐕 {fact}",
-                f"Jen's here! Let's honor her with a furry fact! 🐱 {fact}",
-                f"Jen spotted! Time to channel her inner animal lover! 🐾 {fact}"
+            trigger_messages = [
+                f"Jen detected! Time for an animal fact! 🐾",
+                f"Ah, Jen! The animal lover herself! 🐕",
+                f"Jen's here! Let's honor her with a furry fact! 🐱",
+                f"Jen spotted! Time to channel her inner animal lover! 🐾"
             ]
         
-        # Pick a random response
-        response = random.choice(responses)
+        # Pick a random trigger message
+        trigger_message = random.choice(trigger_messages)
         
-        # Send response
-        await message.channel.send(response)
+        # Create embed for consistent presentation
+        embed = discord.Embed(
+            title="🐾 Jen's Animal Fact",
+            description=f"### {content}",
+            color=discord.Color.blue()
+        )
+        
+        # Add fields for better information display
+        embed.add_field(name="🎯 Trigger", value=trigger_message, inline=False)
+        embed.add_field(name="📋 Type", value="Animal Fact", inline=True)
+        embed.add_field(name="🔗 Source", value=source.title() if source else "API", inline=True)
+        
+        # Handle feedback collection for database content
+        if fact_id:
+            embed.add_field(name="👤 Submitted by", value=submitted_by, inline=True)
+            embed.add_field(name="📊 Community Fact", value="React with 👍 if you like this fact, 👎 if you don't!", inline=False)
+            
+            # Send message with embed
+            sent_message = await message.channel.send(embed=embed)
+            
+            # Add emoji reactions for feedback collection
+            await sent_message.add_reaction("👍")
+            await sent_message.add_reaction("👎")
+            
+            # Save message metadata for reaction tracking
+            from utils import astra_db_ops
+            astra_db_ops.add_message_metadata(fact_id, str(sent_message.id), str(message.guild.id), str(message.channel.id))
+        else:
+            # Regular embed for API content
+            embed.add_field(name="💡 Tip", value="Use `/fact-submit` to share your own facts!", inline=False)
+            await message.channel.send(embed=embed)
         
         # Update cooldown
         update_cooldown(message.channel.id)

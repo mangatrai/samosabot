@@ -89,35 +89,66 @@ async def handle_jeremy_trigger(message):
 async def trigger_jeremy_joke(message, matched_word, similarity, source_type):
     """Trigger dad joke for Jeremy text detection"""
     try:
-        # Get dad joke
-        joke = get_dad_joke()
-        if not joke:
+        # Get dad joke with new return format
+        result = get_dad_joke()
+        if not result or not result[0]:
             logging.warning("Failed to get dad joke for Jeremy trigger")
             return
+        
+        content, source, joke_id, submitted_by = result
         
         # Fun, punchy responses that match Jeremy's personality
         if similarity < 1.0:
             # Fuzzy match - playful acknowledgment
-            responses = [
-                f"Ooh, I heard '{matched_word}' - that's close enough to Jeremy! 🎯 {joke}",
-                f"'{matched_word}'? Close enough! Jeremy would be proud! 😄 {joke}",
-                f"Did someone say '{matched_word}'? That sounds like Jeremy! 🎭 {joke}"
+            trigger_messages = [
+                f"Ooh, I heard '{matched_word}' - that's close enough to Jeremy! 🎯",
+                f"'{matched_word}'? Close enough! Jeremy would be proud! 😄",
+                f"Did someone say '{matched_word}'? That sounds like Jeremy! 🎭"
             ]
         else:
             # Exact match - direct and fun
-            responses = [
-                f"Jeremy detected! Time for a dad joke! 🎪 {joke}",
-                f"Ah, Jeremy! The dad joke master himself! 🎭 {joke}",
-                f"Jeremy's here! Let's honor him with a classic! 🎯 {joke}",
-                f"Jeremy spotted! Time to channel his inner dad! 😄 {joke}"
+            trigger_messages = [
+                f"Jeremy detected! Time for a dad joke! 🎪",
+                f"Ah, Jeremy! The dad joke master himself! 🎭",
+                f"Jeremy's here! Let's honor him with a classic! 🎯",
+                f"Jeremy spotted! Time to channel his inner dad! 😄"
             ]
         
-        # Pick a random response
+        # Pick a random trigger message
         import random
-        response = random.choice(responses)
+        trigger_message = random.choice(trigger_messages)
         
-        # Send response
-        await message.channel.send(response)
+        # Create embed for consistent presentation
+        embed = discord.Embed(
+            title="😄 Jeremy's Dad Joke",
+            description=f"### {content}",
+            color=discord.Color.orange()
+        )
+        
+        # Add fields for better information display
+        embed.add_field(name="🎯 Trigger", value=trigger_message, inline=False)
+        embed.add_field(name="📋 Type", value="Dad Joke", inline=True)
+        embed.add_field(name="🔗 Source", value=source.title() if source else "API", inline=True)
+        
+        # Handle feedback collection for database content
+        if joke_id:
+            embed.add_field(name="👤 Submitted by", value=submitted_by, inline=True)
+            embed.add_field(name="📊 Community Joke", value="React with 👍 if you like this joke, 👎 if you don't!", inline=False)
+            
+            # Send message with embed
+            sent_message = await message.channel.send(embed=embed)
+            
+            # Add emoji reactions for feedback collection
+            await sent_message.add_reaction("👍")
+            await sent_message.add_reaction("👎")
+            
+            # Save message metadata for reaction tracking
+            from utils import astra_db_ops
+            astra_db_ops.add_message_metadata(joke_id, str(sent_message.id), str(message.guild.id), str(message.channel.id))
+        else:
+            # Regular embed for API content
+            embed.add_field(name="💡 Tip", value="Use `/joke-submit` to share your own jokes!", inline=False)
+            await message.channel.send(embed=embed)
         
         # Update cooldown
         update_cooldown(message.channel.id)
