@@ -250,7 +250,7 @@ class TruthDareCog(commands.Cog):
                 await message.add_reaction("👍")
                 await message.add_reaction("👎")
                 # Save message metadata for reaction tracking
-                astra_db_ops.save_truth_dare_message(str(message.id), question_id, str(interaction.guild_id), str(interaction.channel_id))
+                astra_db_ops.add_message_metadata(question_id, str(message.id), str(interaction.guild_id), str(interaction.channel_id))
             
         except Exception as e:
             logging.error(f"Error in slash_tod: {e}")
@@ -404,7 +404,7 @@ class ActionButton(discord.ui.Button):
                 await message.add_reaction("👍")
                 await message.add_reaction("👎")
                 # Save message metadata for reaction tracking
-                astra_db_ops.save_truth_dare_message(str(message.id), question_id, str(interaction.guild_id), str(interaction.channel_id))
+                astra_db_ops.add_message_metadata(question_id, str(message.id), str(interaction.guild_id), str(interaction.channel_id))
             
         except Exception as e:
             logging.error(f"Error in ActionButton callback: {e}")

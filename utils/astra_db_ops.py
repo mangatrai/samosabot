@@ -722,6 +722,7 @@ def get_random_truth_dare_question(question_type: str, rating: str = "PG"):
             return None
         
         # Find all questions of the specified type and rating with positive feedback >= negative feedback
+        # Using $expr for field comparison as documented in AstraDB filter operators
         filter_query = {
             "type": question_type, 
             "rating": rating, 
@@ -768,7 +769,8 @@ def save_truth_dare_question(guild_id: str, user_id: str, question: str,
             "negative_feedback": 0,
             "usage_count": 0,
             "created_at": datetime.datetime.utcnow().isoformat(),
-            "last_used": None
+            "last_used": None,
+            "message_metadata": []  # Array to store message metadata for reaction tracking
         }
         
         result = collection.insert_one(document)
@@ -816,39 +818,61 @@ def record_question_feedback(question_id: str, feedback: str):
         logging.error(f"Error recording question feedback: {e}")
         return False
 
-def save_truth_dare_message(message_id: str, question_id: str, guild_id: str, channel_id: str):
-    """Save truth/dare message metadata for reaction tracking."""
+def add_message_metadata(question_id: str, message_id: str, guild_id: str, channel_id: str):
+    """Add message metadata to existing question record for reaction tracking."""
     try:
         collection = get_truth_dare_questions_collection()
         if collection is None:
             return False
         
-        # Store message metadata in a separate document
-        message_doc = {
+        # Create message metadata object
+        message_metadata = {
             "message_id": message_id,
-            "question_id": question_id,
             "guild_id": guild_id,
             "channel_id": channel_id,
             "created_at": datetime.datetime.utcnow().isoformat()
         }
         
-        collection.insert_one(message_doc)
-        logging.debug(f"Saved truth/dare message metadata: {message_id} -> {question_id}")
+        # Add to message_metadata array in the question document
+        collection.update_one(
+            {"_id": question_id},
+            {"$push": {"message_metadata": message_metadata}}
+        )
+        
+        logging.debug(f"Added message metadata to question {question_id}: {message_id}")
         return True
     except Exception as e:
-        logging.error(f"Error saving truth/dare message metadata: {e}")
+        logging.error(f"Error adding message metadata: {e}")
         return False
 
 def get_truth_dare_message_metadata(message_id: str):
-    """Get truth/dare message metadata by message ID."""
+    """Get truth/dare message metadata by message ID from question records.
+    
+    Note: AstraDB doesn't support $elemMatch for array queries, so we use Python-side filtering.
+    This is the most efficient approach available for AstraDB's current capabilities.
+    """
     try:
         collection = get_truth_dare_questions_collection()
         if collection is None:
             return None
         
-        # Find message metadata document
-        message_doc = collection.find_one({"message_id": message_id})
-        return message_doc
+        # Query documents with non-empty message_metadata arrays
+        # This is the only array querying approach that works in AstraDB
+        # Performance note: This queries all documents with message_metadata, then filters in Python
+        # For better performance, consider adding an index on message_metadata if query volume is high
+        all_docs = collection.find({"message_metadata": {"$exists": True, "$ne": []}})
+        
+        for question_doc in all_docs:
+            # Find the specific message metadata within the array
+            for metadata in question_doc.get("message_metadata", []):
+                if metadata.get("message_id") == message_id:
+                    # Return metadata with question_id for compatibility
+                    metadata["question_id"] = str(question_doc["_id"])
+                    logging.debug(f"Found message metadata for {message_id} in question {question_doc['_id']}")
+                    return metadata
+        
+        logging.debug(f"No message metadata found for message_id: {message_id}")
+        return None
     except Exception as e:
         logging.error(f"Error getting truth/dare message metadata: {e}")
         return None
