@@ -12,8 +12,9 @@ import re
 from cogs.joke import get_dad_joke
 
 # Configuration
-JEREMY_FUZZY_THRESHOLD = 0.7   # Fuzzy matching threshold (lowered for better matching)
+JEREMY_FUZZY_THRESHOLD = 0.8   # Fuzzy matching threshold (increased to reduce false positives)
 JEREMY_COOLDOWN_MINUTES = 10   # Cooldown between triggers per channel
+JEREMY_GUILD_ID = 1310795271692750909  # Only trigger in this specific guild
 
 # Track last trigger time per channel
 last_triggered = {}
@@ -23,6 +24,9 @@ def fuzzy_match(text, target, threshold=JEREMY_FUZZY_THRESHOLD):
     # Use regex that handles hyphens and other word characters
     words = re.findall(r'\b[\w-]+\b', text.lower())
     for word in words:
+        # Skip very short words to reduce false positives
+        if len(word) < 3:
+            continue
         similarity = SequenceMatcher(None, word, target.lower()).ratio()
         if similarity >= threshold:
             return True, word, similarity
@@ -87,6 +91,10 @@ async def handle_jeremy_trigger(message):
     """Main handler for Jeremy triggers"""
     # Skip bot messages
     if message.author.bot:
+        return
+    
+    # Only trigger in specific guild
+    if message.guild is None or message.guild.id != JEREMY_GUILD_ID:
         return
     
     # Check text content first
