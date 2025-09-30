@@ -8,8 +8,13 @@ from discord import app_commands
 import requests
 import logging
 import random
+import os
+from dotenv import load_dotenv
 from utils import openai_utils
 from configs import prompts
+
+# Load environment variables
+load_dotenv()
 
 class FactsCog(commands.Cog):
     """Facts Cog for random facts"""
@@ -21,7 +26,8 @@ class FactsCog(commands.Cog):
     def get_general_fact(self):
         """Get a general random fact from Useless Facts API"""
         try:
-            response = requests.get("https://uselessfacts.jsph.pl/api/v2/facts/random?language=en", timeout=5)
+            api_url = os.getenv("USELESS_FACTS_API_URL", "https://uselessfacts.jsph.pl/api/v2/facts/random?language=en")
+            response = requests.get(api_url, timeout=5)
             if response.status_code == 200:
                 data = response.json()
                 return data.get("text", "No fact available")
@@ -36,13 +42,15 @@ class FactsCog(commands.Cog):
             # Randomly choose between cat and dog facts
             if random.choice([True, False]):
                 # Cat fact
-                response = requests.get("https://catfact.ninja/fact", timeout=5)
+                cat_api_url = os.getenv("CAT_FACTS_API_URL", "https://catfact.ninja/fact")
+                response = requests.get(cat_api_url, timeout=5)
                 if response.status_code == 200:
                     data = response.json()
                     return f"🐱 **Cat Fact:** {data.get('fact', 'No cat fact available')}"
             else:
                 # Dog fact
-                response = requests.get("https://dogapi.dog/api/v2/facts", timeout=5)
+                dog_api_url = os.getenv("DOG_FACTS_API_URL", "https://dogapi.dog/api/v2/facts")
+                response = requests.get(dog_api_url, timeout=5)
                 if response.status_code == 200:
                     data = response.json()
                     if data.get("data") and len(data["data"]) > 0:
