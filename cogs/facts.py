@@ -71,6 +71,7 @@ class FactsCog(commands.Cog):
                     submitted_by="AI"
                 )
                 logging.debug(f"AI-generated general fact: {fact}")
+                logging.debug(f"AI-generated fact_id: {fact_id}")
                 return fact, "llm", fact_id, "AI"
         except Exception as e:
             logging.error(f"Error generating AI general fact: {e}")
@@ -83,7 +84,7 @@ class FactsCog(commands.Cog):
                 data = response.json()
                 fact = data.get("text", "No fact available")
                 logging.debug(f"General fact API fallback: {fact}")
-                return fact, "api", None
+                return fact, "api", None, None
         except Exception as e:
             logging.error(f"Error in general fact API fallback: {e}")
         
@@ -151,6 +152,7 @@ class FactsCog(commands.Cog):
                     submitted_by="AI"
                 )
                 logging.debug(f"AI-generated animal fact: {fact}")
+                logging.debug(f"AI-generated fact_id: {fact_id}")
                 return fact, "llm", fact_id, "AI"
         except Exception as e:
             logging.error(f"Error generating AI animal fact: {e}")
@@ -164,7 +166,7 @@ class FactsCog(commands.Cog):
                 data = response.json()
                 fact = f"🐱 **Cat Fact:** {data.get('fact', 'No cat fact available')}"
                 logging.debug(f"Animal fact API fallback: {fact}")
-                return fact, "api", None
+                return fact, "api", None, None
         except Exception as e:
             logging.error(f"Error in animal fact API fallback: {e}")
         
@@ -179,7 +181,7 @@ class FactsCog(commands.Cog):
                 prompt = prompts.fact_general_prompt
             
             fact = openai_utils.generate_openai_response(prompt)
-            return f"🤖 **AI Generated Fact:** {fact}"
+            return fact
         except Exception as e:
             logging.error(f"Error generating AI fact: {e}")
             return None
@@ -214,17 +216,17 @@ class FactsCog(commands.Cog):
             
             if fact:
                 # Handle feedback collection for database content (including AI-generated)
+                logging.debug(f"Fact condition check - fact_id: {fact_id}, type: {type(fact_id)}")
                 if fact_id:
                     # Create embed for database content
                     category_icon = "📚" if category == "general" else "🐾"
                     embed = discord.Embed(
                         title=f"{category_icon} {category.title()} Fact",
-                        description=f"### {fact}",
+                        description=fact,
                         color=discord.Color.blue()
                     )
                     
                     # Add fields for better information display
-                    embed.add_field(name="📋 Type", value=f"{category.title()} Fact", inline=True)
                     embed.add_field(name="👤 Submitted by", value=submitted_by, inline=True)
                     embed.add_field(name="📊 Community Fact", value="React with 👍 if you like this fact, 👎 if you don't!", inline=False)
                     
@@ -242,10 +244,11 @@ class FactsCog(commands.Cog):
                     # Regular fact display for API/AI content
                     embed = discord.Embed(
                         title="📚 Random Fact",
-                        description=f"### {fact}",
+                        description=fact,
                         color=discord.Color.blue()
                     )
                     embed.set_footer(text=f"Category: {category.title()}")
+                    embed.add_field(name="💡 Tip", value="Use `/fact-submit` to share your own facts!", inline=False)
                     await interaction.followup.send(embed=embed)
             else:
                 await interaction.followup.send("❌ Sorry, I couldn't get a fact right now. Try again later!")
@@ -259,35 +262,89 @@ class FactsCog(commands.Cog):
         """Prefix command for facts"""
         try:
             fact = None
+            fact_id = None
+            source = None
+            submitted_by = None
             
             if category.lower() in ["general", "g"]:
                 result = self.get_general_fact()
                 if result and result[0]:
                     fact, source, fact_id, submitted_by = result
-                    # For database content, we'll add feedback collection in the future
-                    # For now, just display the fact
                 else:
+                    # Store AI-generated content in database for feedback collection
                     fact = self.get_ai_fact("general")
+                    if fact:
+                        from utils import astra_db_ops
+                        fact_id = astra_db_ops.save_truth_dare_question(
+                            guild_id=str(ctx.guild.id),
+                            user_id="ai",
+                            question=fact,
+                            question_type="general_fact",
+                            rating="PG",
+                            source="llm",
+                            submitted_by="AI"
+                        )
+                        source = "llm"
+                        submitted_by = "AI"
             elif category.lower() in ["animals", "animal", "a"]:
                 result = self.get_animal_fact()
                 if result and result[0]:
                     fact, source, fact_id, submitted_by = result
-                    # For database content, we'll add feedback collection in the future
-                    # For now, just display the fact
                 else:
+                    # Store AI-generated content in database for feedback collection
                     fact = self.get_ai_fact("animals")
+                    if fact:
+                        from utils import astra_db_ops
+                        fact_id = astra_db_ops.save_truth_dare_question(
+                            guild_id=str(ctx.guild.id),
+                            user_id="ai",
+                            question=fact,
+                            question_type="animal_fact",
+                            rating="PG",
+                            source="llm",
+                            submitted_by="AI"
+                        )
+                        source = "llm"
+                        submitted_by = "AI"
             else:
                 await ctx.send("❌ Invalid category! Use `general` or `animals`")
                 return
             
             if fact:
-                embed = discord.Embed(
-                    title="📚 Random Fact",
-                    description=fact,
-                    color=discord.Color.blue()
-                )
-                embed.set_footer(text=f"Category: {category.title()}")
-                await ctx.send(embed=embed)
+                # Handle feedback collection for database content (including AI-generated)
+                if fact_id:
+                    # Create embed for database content
+                    category_icon = "📚" if category.lower() in ["general", "g"] else "🐾"
+                    embed = discord.Embed(
+                        title=f"{category_icon} {category.title()} Fact",
+                        description=fact,
+                        color=discord.Color.blue()
+                    )
+                    
+                    # Add fields for better information display
+                    embed.add_field(name="👤 Submitted by", value=submitted_by, inline=True)
+                    embed.add_field(name="📊 Community Fact", value="React with 👍 if you like this fact, 👎 if you don't!", inline=False)
+                    
+                    # Send message with embed
+                    message = await ctx.send(embed=embed)
+                    
+                    # Add emoji reactions for feedback collection
+                    await message.add_reaction("👍")
+                    await message.add_reaction("👎")
+                    
+                    # Save message metadata for reaction tracking
+                    from utils import astra_db_ops
+                    astra_db_ops.add_message_metadata(fact_id, str(message.id), str(ctx.guild.id), str(ctx.channel.id))
+                else:
+                    # Regular fact display for API/AI content
+                    embed = discord.Embed(
+                        title="📚 Random Fact",
+                        description=fact,
+                        color=discord.Color.blue()
+                    )
+                    embed.add_field(name="💡 Tip", value="Use `/fact-submit` to share your own facts!", inline=False)
+                    embed.set_footer(text=f"Category: {category.title()}")
+                    await ctx.send(embed=embed)
             else:
                 await ctx.send("❌ Sorry, I couldn't get a fact right now. Try again later!")
                 

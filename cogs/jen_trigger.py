@@ -128,14 +128,12 @@ async def trigger_jen_animal_fact(message, matched_word, similarity, source_type
         # Create embed for consistent presentation
         embed = discord.Embed(
             title="🐾 Jen's Animal Fact",
-            description=f"### {content}",
+            description=content,
             color=discord.Color.blue()
         )
         
         # Add fields for better information display
         embed.add_field(name="🎯 Trigger", value=trigger_message, inline=False)
-        embed.add_field(name="📋 Type", value="Animal Fact", inline=True)
-        embed.add_field(name="🔗 Source", value=source.title() if source else "API", inline=True)
         
         # Handle feedback collection for database content
         if fact_id:

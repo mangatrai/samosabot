@@ -121,14 +121,12 @@ async def trigger_jeremy_joke(message, matched_word, similarity, source_type):
         # Create embed for consistent presentation
         embed = discord.Embed(
             title="😄 Jeremy's Dad Joke",
-            description=f"### {content}",
+            description=content,
             color=discord.Color.orange()
         )
         
         # Add fields for better information display
         embed.add_field(name="🎯 Trigger", value=trigger_message, inline=False)
-        embed.add_field(name="📋 Type", value="Dad Joke", inline=True)
-        embed.add_field(name="🔗 Source", value=source.title() if source else "API", inline=True)
         
         # Handle feedback collection for database content
         if joke_id:

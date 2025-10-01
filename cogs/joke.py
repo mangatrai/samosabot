@@ -67,20 +67,51 @@ def get_dad_joke():
     
     # Fallback to AI (10% chance or if others fail)
     try:
-        joke = openai_utils.generate_openai_response(prompts.joke_dad_prompt)
-        if joke:
-            # Store AI-generated joke in database for future use
-            joke_id = astra_db_ops.save_truth_dare_question(
-                guild_id="system",
-                user_id="ai",
-                question=joke,
-                question_type="dad_joke",
-                rating="PG",
-                source="llm",
-                submitted_by="AI"
-            )
-            logging.debug(f"AI-generated dad joke: {joke}")
-            return joke, "llm", joke_id, "AI"
+        joke_response = openai_utils.generate_openai_response(prompts.joke_dad_prompt)
+        if joke_response:
+            # Parse JSON response and format as two-step joke
+            try:
+                import json
+                # Remove markdown formatting if present
+                if joke_response.startswith("```json"):
+                    joke_response = joke_response.strip("```json").strip("```").strip()
+                elif joke_response.startswith("```"):
+                    joke_response = joke_response.strip("```").strip()
+                
+                joke_data = json.loads(joke_response)
+                setup = joke_data.get("setup", "")
+                punchline = joke_data.get("punchline", "")
+                joke = f"{setup}\n\n{punchline}"
+                
+                # Store AI-generated joke in database for future use
+                joke_id = astra_db_ops.save_truth_dare_question(
+                    guild_id="system",
+                    user_id="ai",
+                    question=joke,
+                    question_type="dad_joke",
+                    rating="PG",
+                    source="llm",
+                    submitted_by="AI"
+                )
+                logging.debug(f"AI-generated dad joke: {joke}")
+                logging.debug(f"AI-generated joke_id: {joke_id}")
+                return joke, "llm", joke_id, "AI"
+            except (json.JSONDecodeError, KeyError) as e:
+                logging.error(f"Failed to parse AI joke JSON: {joke_response}. Error: {e}")
+                # Fallback to treating as single joke
+                joke = joke_response
+                joke_id = astra_db_ops.save_truth_dare_question(
+                    guild_id="system",
+                    user_id="ai",
+                    question=joke,
+                    question_type="dad_joke",
+                    rating="PG",
+                    source="llm",
+                    submitted_by="AI"
+                )
+                logging.debug(f"AI-generated dad joke (fallback): {joke}")
+                logging.debug(f"AI-generated joke_id: {joke_id}")
+                return joke, "llm", joke_id, "AI"
     except Exception as e:
         logging.error(f"Error generating AI dad joke: {e}")
     
@@ -118,7 +149,9 @@ def get_general_joke():
                 logging.debug(f"General joke API response: {joke}")
                 return joke
             elif data.get('type') == 'twopart':
-                joke = f"{data.get('setup', '')}\n{data.get('delivery', '')}"
+                setup = data.get('setup', '')
+                delivery = data.get('delivery', '')
+                joke = f"{setup}\n\n{delivery}"
                 logging.debug(f"General joke API response: {joke}")
                 return joke
     except:
@@ -136,7 +169,9 @@ def get_dark_joke():
                 logging.debug(f"Dark joke API response: {joke}")
                 return joke
             elif data.get('type') == 'twopart':
-                joke = f"{data.get('setup', '')}\n{data.get('delivery', '')}"
+                setup = data.get('setup', '')
+                delivery = data.get('delivery', '')
+                joke = f"{setup}\n\n{delivery}"
                 logging.debug(f"Dark joke API response: {joke}")
                 return joke
     except:
@@ -154,7 +189,9 @@ def get_spooky_joke():
                 logging.debug(f"Spooky joke API response: {joke}")
                 return joke
             elif data.get('type') == 'twopart':
-                joke = f"{data.get('setup', '')}\n{data.get('delivery', '')}"
+                setup = data.get('setup', '')
+                delivery = data.get('delivery', '')
+                joke = f"{setup}\n\n{delivery}"
                 logging.debug(f"Spooky joke API response: {joke}")
                 return joke
     except:
@@ -195,6 +232,9 @@ class JokeCog(commands.Cog):
     @commands.command(name="joke")
     async def joke(self, ctx, category: str = "general"):
         content = None
+        joke_id = None
+        source = None
+        submitted_by = None
         
         if category == "insult":
             content = get_insult_joke()
@@ -204,10 +244,22 @@ class JokeCog(commands.Cog):
             result = get_dad_joke()
             if result and result[0]:
                 content, source, joke_id, submitted_by = result
-                # For database content, we'll add feedback collection in the future
-                # For now, just display the joke
             else:
+                # Store AI-generated content in database for feedback collection
                 content = openai_utils.generate_openai_response(prompts.joke_dad_prompt)
+                if content:
+                    from utils import astra_db_ops
+                    joke_id = astra_db_ops.save_truth_dare_question(
+                        guild_id=str(ctx.guild.id),
+                        user_id="ai",
+                        question=content,
+                        question_type="dad_joke",
+                        rating="PG",
+                        source="llm",
+                        submitted_by="AI"
+                    )
+                    source = "llm"
+                    submitted_by = "AI"
         elif category == "dark":
             content = get_dark_joke()
             if content is None:
@@ -221,19 +273,41 @@ class JokeCog(commands.Cog):
             if content is None:
                 content = openai_utils.generate_openai_response(prompts.joke_gen_prompt)
         
-        # Create embed for consistent presentation
-        embed = discord.Embed(
-            title="😄 Joke",
-            description=f"### {content}",
-            color=discord.Color.green()
-        )
-        
-        # Add fields for better information display
-        embed.add_field(name="📋 Type", value=category.title(), inline=True)
-        embed.add_field(name="🔗 Source", value="API", inline=True)
-        embed.add_field(name="💡 Tip", value="Use `/joke-submit` to share your own jokes!", inline=False)
-        
-        await ctx.send(embed=embed)
+        # Handle feedback collection for database content (including AI-generated)
+        if joke_id:
+            # Create embed for database content
+            embed = discord.Embed(
+                title="😄 Joke",
+                description=content,
+                color=discord.Color.orange()
+            )
+            
+            # Add fields for better information display
+            embed.add_field(name="👤 Submitted by", value=submitted_by, inline=True)
+            embed.add_field(name="📊 Community Joke", value="React with 👍 if you like this joke, 👎 if you don't!", inline=False)
+            
+            # Send message with embed
+            message = await ctx.send(embed=embed)
+            
+            # Add emoji reactions for feedback collection
+            await message.add_reaction("👍")
+            await message.add_reaction("👎")
+            
+            # Save message metadata for reaction tracking
+            from utils import astra_db_ops
+            astra_db_ops.add_message_metadata(joke_id, str(message.id), str(ctx.guild.id), str(ctx.channel.id))
+        else:
+            # Regular joke display for API/AI content with embed
+            embed = discord.Embed(
+                title="😄 Joke",
+                description=content,
+                color=discord.Color.green()
+            )
+            
+            # Add fields for better information display
+            embed.add_field(name="💡 Tip", value="Use `/joke-submit` to share your own jokes!", inline=False)
+            
+            await ctx.send(embed=embed)
 
     @app_commands.command(name="joke", description="Get a joke")
     @app_commands.choices(category=[
@@ -273,6 +347,7 @@ class JokeCog(commands.Cog):
                 content = openai_utils.generate_openai_response(prompts.joke_gen_prompt)
         
         # Handle feedback collection for database content (including AI-generated)
+        logging.debug(f"Joke condition check - joke_id: {joke_id}, type: {type(joke_id)}")
         if joke_id:
             # Defer response to allow for embed and reactions
             await interaction.response.defer()
@@ -280,12 +355,11 @@ class JokeCog(commands.Cog):
             # Create embed for database content
             embed = discord.Embed(
                 title="😄 Dad Joke",
-                description=f"### {content}",
+                description=content,
                 color=discord.Color.orange()
             )
             
             # Add fields for better information display
-            embed.add_field(name="📋 Type", value="Dad Joke", inline=True)
             embed.add_field(name="👤 Submitted by", value=submitted_by, inline=True)
             embed.add_field(name="📊 Community Joke", value="React with 👍 if you like this joke, 👎 if you don't!", inline=False)
             
@@ -306,13 +380,11 @@ class JokeCog(commands.Cog):
             # Create embed for API/AI content
             embed = discord.Embed(
                 title="😄 Joke",
-                description=f"### {content}",
+                description=content,
                 color=discord.Color.green()
             )
             
             # Add fields for better information display
-            embed.add_field(name="📋 Type", value=category.title(), inline=True)
-            embed.add_field(name="🔗 Source", value=source.title() if source else "API", inline=True)
             embed.add_field(name="💡 Tip", value="Use `/joke-submit` to share your own jokes!", inline=False)
             
             await interaction.followup.send(embed=embed)
