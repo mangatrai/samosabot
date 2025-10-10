@@ -397,10 +397,13 @@ class JokeCog(commands.Cog):
     async def slash_joke_submit(self, interaction: discord.Interaction, joke: str, rating: str = "PG"):
         """Submit a custom dad joke."""
         try:
-            # Validate joke length
+            # Validate joke length first
             if len(joke) > 200:
                 await interaction.response.send_message("❌ Joke is too long! Please keep it under 200 characters.", ephemeral=True)
                 return
+            
+            # Acknowledge interaction immediately to prevent timeout
+            await interaction.response.defer(ephemeral=True)
             
             # Import here to avoid circular imports
             from utils import astra_db_ops
@@ -417,18 +420,24 @@ class JokeCog(commands.Cog):
             )
             
             if joke_id:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"✅ Thanks! Your dad joke has been submitted for review.\n"
                     f"**Joke:** {joke}\n"
                     f"**Rating:** {rating}",
                     ephemeral=True
                 )
             else:
-                await interaction.response.send_message("❌ Failed to submit your joke. Please try again later.", ephemeral=True)
+                await interaction.followup.send("❌ Failed to submit your joke. Please try again later.", ephemeral=True)
                 
         except Exception as e:
             logging.error(f"Error in slash_joke_submit: {e}")
-            await interaction.response.send_message("❌ An error occurred while submitting your joke.", ephemeral=True)
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("❌ An error occurred while submitting your joke.", ephemeral=True)
+                else:
+                    await interaction.followup.send("❌ An error occurred while submitting your joke.", ephemeral=True)
+            except:
+                pass  # Interaction might be expired
 
 async def setup(bot):
     await bot.add_cog(JokeCog(bot))

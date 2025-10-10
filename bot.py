@@ -313,21 +313,33 @@ async def on_ready():
     if bot_status_channels and not bot_status_task.is_running():
         bot_status_task.start()
 
-    # Sync slash commands globally
-    try:
-        await tree.sync(guild=None)
-        logging.debug(f"[DEBUG] Synced {len(tree.get_commands())} slash commands globally")
-    except Exception as e:
-        logging.error(f"[ERROR] Failed to sync commands globally: {e}")
+    # Wait for cogs to fully register commands
+    await asyncio.sleep(2)
+    logging.info("Waiting for cogs to register commands...")
 
-    # Sync slash commands for each guild
-    for guild in bot.guilds:
+    # Sync slash commands globally with retry
+    for attempt in range(3):
         try:
-            await tree.sync(guild=guild)
-            astra_db_ops.register_or_update_guild(guild.id, guild.name,"JOINED")
-            logging.debug(f"[DEBUG] Synced slash commands for {guild.name} ({guild.id})")
+            await tree.sync(guild=None)
+            logging.info(f"[SUCCESS] Synced {len(tree.get_commands())} slash commands globally")
+            break
         except Exception as e:
-            logging.error(f"[ERROR] Failed to sync commands for {guild.name} ({guild.id}): {e}")
+            logging.error(f"[ERROR] Failed to sync commands globally (attempt {attempt + 1}/3): {e}")
+            if attempt < 2:
+                await asyncio.sleep(2)
+
+    # Sync slash commands for each guild with retry
+    for guild in bot.guilds:
+        for attempt in range(2):
+            try:
+                await tree.sync(guild=guild)
+                astra_db_ops.register_or_update_guild(guild.id, guild.name,"JOINED")
+                logging.info(f"[SUCCESS] Synced slash commands for {guild.name} ({guild.id})")
+                break
+            except Exception as e:
+                logging.error(f"[ERROR] Failed to sync commands for {guild.name} ({guild.id}) (attempt {attempt + 1}/2): {e}")
+                if attempt < 1:
+                    await asyncio.sleep(1)
 
 @bot.check
 async def global_throttle_check(ctx):
@@ -387,7 +399,10 @@ async def on_command_error(ctx, error):
         ctx (commands.Context): The context in which the command was invoked.
         error (Exception): The exception raised by the command.
     """
-    if isinstance(error, commands.CommandOnCooldown):
+    if isinstance(error, commands.CommandNotFound):
+        # Silently ignore unknown commands to prevent spam
+        return
+    elif isinstance(error, commands.CommandOnCooldown):
         # Round up the retry time
         retry = math.ceil(error.retry_after)
         # Send an initial cooldown message with a countdown
