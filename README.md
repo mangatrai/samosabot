@@ -48,7 +48,7 @@ A feature-rich Discord bot that brings **Trivia Games, Truth or Dare, Random Fac
 - **Never Have I Ever** – Share experiences
 - **Paranoia** – Spooky questions
 
-**Rating Options:** Family-friendly (PG) or Adult (PG-13)
+**Rating Options:** Family-friendly (PG13) or Adult Only (R)
 
 ---
 
@@ -57,6 +57,7 @@ A feature-rich Discord bot that brings **Trivia Games, Truth or Dare, Random Fac
 |---------|-------------|
 | `/fact` | Get a random general fact |
 | `/fact animals` | Get a random animal fact |
+| `/fact-submit` | Submit your own fact |
 | `!fact` | Prefix command version |
 
 **Sources:** Real APIs + AI-generated facts as backup
@@ -71,6 +72,7 @@ A feature-rich Discord bot that brings **Trivia Games, Truth or Dare, Random Fac
 | `/joke general` | Get a general joke |
 | `/joke dark` | Get a dark humor joke |
 | `/joke spooky` | Get a spooky joke |
+| `/joke-submit` | Submit your own dad joke |
 | `!joke <category>` | Prefix command version |
 
 ---
@@ -145,22 +147,23 @@ A feature-rich Discord bot that brings **Trivia Games, Truth or Dare, Random Fac
 
 ### Truth or Dare Game Flow
 1. Use `/tod` to start a game
-2. Click **Truth**, **Dare**, or **Random** buttons
+2. Click **Truth**, **Dare**, **Random**, or other game type buttons
 3. Answer the question or complete the challenge
-4. Click buttons to get new questions
-5. Use 👍/👎 reactions to rate AI-generated questions
+4. Click buttons to get new questions (buttons work even after bot restarts)
+5. Use 👍/👎 reactions to rate AI-generated and community questions
 
 ### Trivia Game Flow
 1. Use `/trivia start <category>` to begin
-2. Answer questions by typing your response
+2. Answer questions by clicking the button options (A, B, C, D)
 3. View your stats with `!mystats`
 4. Check leaderboards with `/trivia leaderboard`
 
 ### Special Features
-- **Interactive Buttons** – Many commands use clickable buttons for easy navigation
-- **Emoji Reactions** – Rate content quality with 👍/👎 reactions
-- **User Submissions** – Submit your own Truth or Dare questions
+- **Interactive Buttons** – Many commands use clickable buttons for easy navigation (buttons persist after bot restarts)
+- **Emoji Reactions** – Rate content quality with 👍/👎 reactions for jokes, facts, and Truth or Dare questions
+- **User Submissions** – Submit your own Truth or Dare questions, jokes, and facts
 - **Smart Fallbacks** – If APIs fail, AI generates content automatically
+- **Multi-Source Content** – Content comes from APIs, community database, or AI generation
 
 ---
 

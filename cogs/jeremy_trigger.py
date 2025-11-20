@@ -130,10 +130,7 @@ async def trigger_jeremy_joke(message, matched_word, similarity, source_type):
         
         # Handle feedback collection for database content
         if joke_id:
-            embed.add_field(name="👤 Submitted by", value=submitted_by, inline=True)
-            embed.add_field(name="📊 Community Joke", value="React with 👍 if you like this joke, 👎 if you don't!", inline=False)
-            
-            # Send message with embed
+        # Send message with embed
             sent_message = await message.channel.send(embed=embed)
             
             # Add emoji reactions for feedback collection
@@ -145,7 +142,6 @@ async def trigger_jeremy_joke(message, matched_word, similarity, source_type):
             astra_db_ops.add_message_metadata(joke_id, str(sent_message.id), str(message.guild.id), str(message.channel.id))
         else:
             # Regular embed for API content
-            embed.add_field(name="💡 Tip", value="Use `/joke-submit` to share your own jokes!", inline=False)
             await message.channel.send(embed=embed)
         
         # Update cooldown

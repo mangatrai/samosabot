@@ -76,12 +76,34 @@ class AskCog(commands.Cog):
 
     @commands.command(name="asksamosa")
     async def ask_samosa(self, ctx, *, question):
+        """
+        Ask the AI a question or request image generation (prefix command).
+        
+        Features:
+            - Daily request limit per user (default: 30)
+            - Intent detection and safety checking
+            - Image generation support
+            - User mention replacement with display names
+        
+        All requests are logged to AstraDB for tracking.
+        """
         # Preprocess the question to replace any user mentions with display names.
         question = replace_mentions_with_username(question, ctx)
         await self.handle_request(ctx, question)
 
     @app_commands.command(name="ask", description="Ask a question or generate an image.")
     async def ask_slash(self, interaction: discord.Interaction, question: str):
+        """
+        Ask the AI a question or request image generation (slash command).
+        
+        Features:
+            - Daily request limit per user (default: 30)
+            - Intent detection and safety checking
+            - Image generation support
+            - User mention replacement with display names
+        
+        All requests are logged to AstraDB for tracking.
+        """
         # Preprocess the question to replace any user mentions with display names.
         question = replace_mentions_with_username(question, interaction)
         await self.handle_request(interaction, question)

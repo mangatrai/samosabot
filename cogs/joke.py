@@ -3,16 +3,14 @@ JokeCog Module
 
 This module provides a Discord cog for delivering jokes through both traditional prefix
 commands and modern slash commands. It integrates with OpenAI via the openai_utils module
-and utilizes predefined prompts from the prompts module to generate jokes. A helper function,
-format_joke, attempts to parse and format the joke response (expected as JSON) by separating
-the setup and punchline into distinct lines. In cases where JSON parsing fails, the function
-falls back to a simple string split for formatting.
+and utilizes predefined prompts from the prompts module to generate jokes.
 
 Features:
-  - Supports multiple joke categories such as "General", "Dad Joke", and "Insult".
+  - Supports multiple joke categories such as "General", "Dad Joke", "Insult", "Dark", and "Spooky".
   - Provides both a text-based command (!joke) and a slash command (/joke) interface.
-  - Dynamically generates jokes using OpenAI's API.
-  - Logs warnings if the response cannot be parsed as JSON.
+  - Dynamically generates jokes using OpenAI's API with fallback to external APIs.
+  - Database support for dad jokes with feedback collection.
+  - Standardized return format across all joke functions for consistency.
 
 Usage:
   Load this cog into your Discord bot to allow users to request jokes by invoking the
@@ -49,8 +47,8 @@ def get_dad_joke():
                 joke = response.json().get('joke')
                 logging.debug(f"Dad joke API response: {joke}")
                 return joke, "api", None, None
-        except:
-            pass
+        except Exception as e:
+            logging.error(f"Error getting dad joke from API: {e}")
     
     if rand < 0.9:
         # Try database (20% chance)
@@ -128,17 +126,19 @@ def get_dad_joke():
     return None, None, None, None
 
 def get_insult_joke():
+    """Get insult joke with priority: API -> AI fallback"""
     try:
         response = requests.get(os.getenv("EVILINSULT_URL"), timeout=5)
         if response.status_code == 200:
             insult = response.json().get('insult')
             logging.debug(f"Insult joke API response: {insult}")
-            return insult
-    except:
-        pass
-    return None
+            return insult, "api", None, None
+    except Exception as e:
+        logging.error(f"Error getting insult joke from API: {e}")
+    return None, None, None, None
 
 def get_general_joke():
+    """Get general joke with priority: API -> AI fallback"""
     try:
         url = f"{os.getenv('JOKEAPI_URL')}Any?blacklistFlags=nsfw,racist,sexist,explicit"
         response = requests.get(url, timeout=5)
@@ -147,18 +147,19 @@ def get_general_joke():
             if data.get('type') == 'single':
                 joke = data.get('joke')
                 logging.debug(f"General joke API response: {joke}")
-                return joke
+                return joke, "api", None, None
             elif data.get('type') == 'twopart':
                 setup = data.get('setup', '')
                 delivery = data.get('delivery', '')
                 joke = f"{setup}\n\n{delivery}"
                 logging.debug(f"General joke API response: {joke}")
-                return joke
-    except:
-        pass
-    return None
+                return joke, "api", None, None
+    except Exception as e:
+        logging.error(f"Error getting general joke from API: {e}")
+    return None, None, None, None
 
 def get_dark_joke():
+    """Get dark joke with priority: API -> AI fallback"""
     try:
         url = f"{os.getenv('JOKEAPI_URL')}Dark?blacklistFlags=racist"
         response = requests.get(url, timeout=5)
@@ -167,18 +168,19 @@ def get_dark_joke():
             if data.get('type') == 'single':
                 joke = data.get('joke')
                 logging.debug(f"Dark joke API response: {joke}")
-                return joke
+                return joke, "api", None, None
             elif data.get('type') == 'twopart':
                 setup = data.get('setup', '')
                 delivery = data.get('delivery', '')
                 joke = f"{setup}\n\n{delivery}"
                 logging.debug(f"Dark joke API response: {joke}")
-                return joke
-    except:
-        pass
-    return None
+                return joke, "api", None, None
+    except Exception as e:
+        logging.error(f"Error getting dark joke from API: {e}")
+    return None, None, None, None
 
 def get_spooky_joke():
+    """Get spooky joke with priority: API -> AI fallback"""
     try:
         url = f"{os.getenv('JOKEAPI_URL')}Spooky?blacklistFlags=racist"
         response = requests.get(url, timeout=5)
@@ -187,70 +189,70 @@ def get_spooky_joke():
             if data.get('type') == 'single':
                 joke = data.get('joke')
                 logging.debug(f"Spooky joke API response: {joke}")
-                return joke
+                return joke, "api", None, None
             elif data.get('type') == 'twopart':
                 setup = data.get('setup', '')
                 delivery = data.get('delivery', '')
                 joke = f"{setup}\n\n{delivery}"
                 logging.debug(f"Spooky joke API response: {joke}")
-                return joke
-    except:
-        pass
-    return None
+                return joke, "api", None, None
+    except Exception as e:
+        logging.error(f"Error getting spooky joke from API: {e}")
+    return None, None, None, None
 
-def format_joke(response_text):
-    """Parses and formats jokes properly, handling both JSON (AI) and plain text (API) responses."""
-    # Try JSON first (AI responses)
-    try:
-        if response_text.startswith("```json"):
-            response_text = response_text.strip("```json").strip("```")
-        joke_data = json.loads(response_text)
-        setup = joke_data.get("setup", "").strip()
-        punchline = joke_data.get("punchline", "").strip()
-        if setup and punchline:
-            return f"🤣 **Joke:**\n{setup}\n{punchline}"
-    except json.JSONDecodeError:
-        pass  # Not JSON, continue to plain text handling
+def format_joke_content(content: str) -> str:
+    """Format joke content with proper markdown for single or multi-line jokes."""
+    if not content:
+        return content
     
-    # Handle plain text (API responses)
-    if '\n' in response_text:
-        # Two-part joke
-        lines = response_text.split('\n', 1)
-        return f"🤣 **Joke:**\n{lines[0]}\n{lines[1]}"
-    elif '. ' in response_text:
-        # Single sentence with period
-        parts = response_text.split('. ', 1)
-        return f"🤣 **Joke:**\n{parts[0]}.\n{parts[1]}"
+    # Check if joke has multiple lines
+    if '\n' in content:
+        # Multi-line joke - format each line separately
+        lines = content.split('\n')
+        formatted_lines = []
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if line:  # Only format non-empty lines
+                if i == 0:
+                    # First line gets the heading format
+                    formatted_lines.append(f"### **{line}**")
+                else:
+                    # Subsequent lines get bold format
+                    formatted_lines.append(f"**{line}**")
+        return '\n'.join(formatted_lines)
     else:
-        # Single line joke
-        return f"🤣 **Joke:**\n{response_text.strip()}"
+        # Single-line joke - simple format
+        return f"### **{content}**"
 
 class JokeCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(name="joke")
-    async def joke(self, ctx, category: str = "general"):
+    async def handle_joke_request(self, source, category: str, is_slash: bool = False):
+        """Shared handler for both prefix and slash joke commands."""
         content = None
         joke_id = None
-        source = None
+        source_type = None
         submitted_by = None
         
         if category == "insult":
-            content = get_insult_joke()
-            if content is None:
+            result = get_insult_joke()
+            if result and result[0]:
+                content, source_type, joke_id, submitted_by = result
+            else:
+                # AI fallback
                 content = openai_utils.generate_openai_response(prompts.joke_insult_prompt)
         elif category == "dad":
             result = get_dad_joke()
             if result and result[0]:
-                content, source, joke_id, submitted_by = result
+                content, source_type, joke_id, submitted_by = result
             else:
-                # Store AI-generated content in database for feedback collection
+                # AI fallback - store in database for feedback
                 content = openai_utils.generate_openai_response(prompts.joke_dad_prompt)
                 if content:
                     from utils import astra_db_ops
                     joke_id = astra_db_ops.save_truth_dare_question(
-                        guild_id=str(ctx.guild.id),
+                        guild_id=str(source.guild.id) if hasattr(source, 'guild') else str(source.guild_id),
                         user_id="ai",
                         question=content,
                         question_type="dad_joke",
@@ -258,36 +260,52 @@ class JokeCog(commands.Cog):
                         source="llm",
                         submitted_by="AI"
                     )
-                    source = "llm"
+                    source_type = "llm"
                     submitted_by = "AI"
         elif category == "dark":
-            content = get_dark_joke()
-            if content is None:
+            result = get_dark_joke()
+            if result and result[0]:
+                content, source_type, joke_id, submitted_by = result
+            else:
+                # AI fallback
                 content = openai_utils.generate_openai_response(prompts.joke_gen_prompt)
         elif category == "spooky":
-            content = get_spooky_joke()
-            if content is None:
+            result = get_spooky_joke()
+            if result and result[0]:
+                content, source_type, joke_id, submitted_by = result
+            else:
+                # AI fallback
                 content = openai_utils.generate_openai_response(prompts.joke_gen_prompt)
-        else:
-            content = get_general_joke()
-            if content is None:
+        else:  # general
+            result = get_general_joke()
+            if result and result[0]:
+                content, source_type, joke_id, submitted_by = result
+            else:
+                # AI fallback
                 content = openai_utils.generate_openai_response(prompts.joke_gen_prompt)
+        
+        if not content:
+            error_msg = "❌ Sorry, I couldn't generate a joke right now. Try again later!"
+            if is_slash:
+                await source.followup.send(error_msg, ephemeral=True)
+            else:
+                await source.send(error_msg)
+            return
         
         # Handle feedback collection for database content (including AI-generated)
         if joke_id:
             # Create embed for database content
             embed = discord.Embed(
                 title="😄 Joke",
-                description=content,
+                description=format_joke_content(content),
                 color=discord.Color.orange()
             )
-            
-            # Add fields for better information display
-            embed.add_field(name="👤 Submitted by", value=submitted_by, inline=True)
-            embed.add_field(name="📊 Community Joke", value="React with 👍 if you like this joke, 👎 if you don't!", inline=False)
-            
+                     
             # Send message with embed
-            message = await ctx.send(embed=embed)
+            if is_slash:
+                message = await source.followup.send(embed=embed)
+            else:
+                message = await source.send(embed=embed)
             
             # Add emoji reactions for feedback collection
             await message.add_reaction("👍")
@@ -295,19 +313,35 @@ class JokeCog(commands.Cog):
             
             # Save message metadata for reaction tracking
             from utils import astra_db_ops
-            astra_db_ops.add_message_metadata(joke_id, str(message.id), str(ctx.guild.id), str(ctx.channel.id))
+            guild_id = source.guild.id if hasattr(source, 'guild') else source.guild_id
+            channel_id = source.channel.id if hasattr(source, 'channel') else source.channel_id
+            astra_db_ops.add_message_metadata(joke_id, str(message.id), str(guild_id), str(channel_id))
         else:
             # Regular joke display for API/AI content with embed
             embed = discord.Embed(
                 title="😄 Joke",
-                description=content,
+                description=format_joke_content(content),
                 color=discord.Color.green()
             )
             
             # Add fields for better information display
             embed.add_field(name="💡 Tip", value="Use `/joke-submit` to share your own jokes!", inline=False)
             
-            await ctx.send(embed=embed)
+            if is_slash:
+                await source.followup.send(embed=embed)
+            else:
+                await source.send(embed=embed)
+
+    @commands.command(name="joke")
+    async def joke(self, ctx, category: str = "general"):
+        """
+        Get a joke from various categories.
+        
+        Categories: dad, insult, general, dark, spooky
+        Shows typing indicator while generating.
+        """
+        async with ctx.typing():
+            await self.handle_joke_request(ctx, category, is_slash=False)
 
     @app_commands.command(name="joke", description="Get a joke")
     @app_commands.choices(category=[
@@ -318,76 +352,14 @@ class JokeCog(commands.Cog):
         app_commands.Choice(name="Spooky", value="spooky")
     ])
     async def slash_joke(self, interaction: discord.Interaction, category: str):
-        content = None
-        joke_id = None
-        source = None
-        submitted_by = None
+        """
+        Get a joke from various categories (slash command).
         
-        if category == "insult":
-            content = get_insult_joke()
-            if content is None:
-                content = openai_utils.generate_openai_response(prompts.joke_insult_prompt)
-        elif category == "dad":
-            result = get_dad_joke()
-            if result and result[0]:
-                content, source, joke_id, submitted_by = result
-            else:
-                content = openai_utils.generate_openai_response(prompts.joke_dad_prompt)
-        elif category == "dark":
-            content = get_dark_joke()
-            if content is None:
-                content = openai_utils.generate_openai_response(prompts.joke_gen_prompt)
-        elif category == "spooky":
-            content = get_spooky_joke()
-            if content is None:
-                content = openai_utils.generate_openai_response(prompts.joke_gen_prompt)
-        else:
-            content = get_general_joke()
-            if content is None:
-                content = openai_utils.generate_openai_response(prompts.joke_gen_prompt)
-        
-        # Handle feedback collection for database content (including AI-generated)
-        logging.debug(f"Joke condition check - joke_id: {joke_id}, type: {type(joke_id)}")
-        if joke_id:
-            # Defer response to allow for embed and reactions
-            await interaction.response.defer()
-            
-            # Create embed for database content
-            embed = discord.Embed(
-                title="😄 Dad Joke",
-                description=content,
-                color=discord.Color.orange()
-            )
-            
-            # Add fields for better information display
-            embed.add_field(name="👤 Submitted by", value=submitted_by, inline=True)
-            embed.add_field(name="📊 Community Joke", value="React with 👍 if you like this joke, 👎 if you don't!", inline=False)
-            
-            # Send message with embed
-            message = await interaction.followup.send(embed=embed)
-            
-            # Add emoji reactions for feedback collection
-            await message.add_reaction("👍")
-            await message.add_reaction("👎")
-            
-            # Save message metadata for reaction tracking
-            from utils import astra_db_ops
-            astra_db_ops.add_message_metadata(joke_id, str(message.id), str(interaction.guild_id), str(interaction.channel_id))
-        else:
-            # Regular joke display for API/AI content with embed
-            await interaction.response.defer()
-            
-            # Create embed for API/AI content
-            embed = discord.Embed(
-                title="😄 Joke",
-                description=content,
-                color=discord.Color.green()
-            )
-            
-            # Add fields for better information display
-            embed.add_field(name="💡 Tip", value="Use `/joke-submit` to share your own jokes!", inline=False)
-            
-            await interaction.followup.send(embed=embed)
+        Categories: Dad Joke, Insult, General, Dark, Spooky
+        Dad jokes support community feedback via reactions.
+        """
+        await interaction.response.defer()
+        await self.handle_joke_request(interaction, category, is_slash=True)
 
     @app_commands.command(name="joke-submit", description="Submit your own dad joke")
     @app_commands.choices(rating=[
@@ -395,7 +367,13 @@ class JokeCog(commands.Cog):
         app_commands.Choice(name="Adult Only", value="PG13")
     ])
     async def slash_joke_submit(self, interaction: discord.Interaction, joke: str, rating: str = "PG"):
-        """Submit a custom dad joke."""
+        """
+        Submit your own dad joke to the community database.
+        
+        Args:
+            joke: Your joke (max 200 characters)
+            rating: Family Friendly (PG) or Adult Only (PG13)
+        """
         try:
             # Validate joke length first
             if len(joke) > 200:

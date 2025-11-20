@@ -137,9 +137,6 @@ async def trigger_jen_animal_fact(message, matched_word, similarity, source_type
         
         # Handle feedback collection for database content
         if fact_id:
-            embed.add_field(name="👤 Submitted by", value=submitted_by, inline=True)
-            embed.add_field(name="📊 Community Fact", value="React with 👍 if you like this fact, 👎 if you don't!", inline=False)
-            
             # Send message with embed
             sent_message = await message.channel.send(embed=embed)
             
@@ -151,8 +148,6 @@ async def trigger_jen_animal_fact(message, matched_word, similarity, source_type
             from utils import astra_db_ops
             astra_db_ops.add_message_metadata(fact_id, str(sent_message.id), str(message.guild.id), str(message.channel.id))
         else:
-            # Regular embed for API content
-            embed.add_field(name="💡 Tip", value="Use `/fact-submit` to share your own facts!", inline=False)
             await message.channel.send(embed=embed)
         
         # Update cooldown

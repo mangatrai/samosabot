@@ -1,3 +1,19 @@
+"""
+TruthDareCog Module
+
+This module provides a Discord cog for Truth or Dare games with multiple game types and rating options.
+It supports both prefix and slash commands, persistent buttons that work after bot restarts, and
+community submissions with feedback collection.
+
+Features:
+  - Multiple game types: Truth, Dare, Would You Rather, Never Have I Ever, Paranoia
+  - Rating options: Family-friendly (PG13) or Adult Only (R)
+  - Persistent interactive buttons for continuous gameplay
+  - User submissions with community feedback (👍/👎 reactions)
+  - Multiple content sources: External API, community database, AI generation
+  - Clean embed presentation with question formatting
+"""
+
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -19,7 +35,7 @@ class TruthDareCog(commands.Cog):
         self.bot = bot
         self.api_base_url = os.getenv("TRUTH_DARE_API_URL", "https://api.truthordarebot.xyz/v1")
 
-    def get_api_question(self, question_type: str, rating: str = "PG"):
+    def get_api_question(self, question_type: str, rating: str = "PG13"):
         """Get a question from the Truth or Dare Bot API."""
         try:
             # Map our types to API endpoints
@@ -36,7 +52,7 @@ class TruthDareCog(commands.Cog):
                 return None, None
                 
             url = f"{self.api_base_url}/{endpoint}"
-            if rating != "PG":
+            if rating not in ["PG", "PG13"]:
                 url += f"?rating={rating}"
                 
             response = requests.get(url, timeout=5)
@@ -50,19 +66,26 @@ class TruthDareCog(commands.Cog):
             logging.error(f"Error getting API question: {e}")
         return None, None
 
-    def get_llm_question(self, question_type: str, rating: str = "PG"):
+    def get_llm_question(self, question_type: str, rating: str = "PG13"):
         """Get a question from LLM using existing prompts."""
         try:
             # Map to prompt variables
             prompt_map = {
                 ("truth", "PG"): prompts.truth_pg_prompt,
                 ("truth", "PG13"): prompts.truth_pg13_prompt,
+                ("truth", "R"): prompts.truth_r_prompt,
                 ("dare", "PG"): prompts.dare_pg_prompt,
                 ("dare", "PG13"): prompts.dare_pg13_prompt,
-                ("wyr", "PG"): prompts.wyr_prompt,
-                ("wyr", "PG13"): prompts.wyr_prompt,
-                ("nhie", "PG"): prompts.nhie_prompt,
-                ("nhie", "PG13"): prompts.nhie_prompt,
+                ("dare", "R"): prompts.dare_r_prompt,
+                ("wyr", "PG"): prompts.wyr_pg_prompt,
+                ("wyr", "PG13"): prompts.wyr_pg13_prompt,
+                ("wyr", "R"): prompts.wyr_r_prompt,
+                ("nhie", "PG"): prompts.nhie_pg_prompt,
+                ("nhie", "PG13"): prompts.nhie_pg13_prompt,
+                ("nhie", "R"): prompts.nhie_r_prompt,
+                ("paranoia", "PG"): prompts.paranoia_pg_prompt,
+                ("paranoia", "PG13"): prompts.paranoia_pg13_prompt,
+                ("paranoia", "R"): prompts.paranoia_r_prompt,
             }
             
             prompt = prompt_map.get((question_type, rating))
@@ -74,7 +97,7 @@ class TruthDareCog(commands.Cog):
             logging.error(f"Error getting LLM question: {e}")
         return None, None
 
-    def get_database_question(self, question_type: str, rating: str = "PG"):
+    def get_database_question(self, question_type: str, rating: str = "PG13"):
         """Get a question from the database."""
         try:
             question_data = astra_db_ops.get_random_truth_dare_question(question_type, rating)
@@ -87,7 +110,7 @@ class TruthDareCog(commands.Cog):
             logging.error(f"Error getting database question: {e}")
         return None, None, None
 
-    async def get_question(self, question_type: str, rating: str = "PG"):
+    async def get_question(self, question_type: str, rating: str = "PG13"):
         """Get a question using the priority: API -> Database -> LLM with randomization."""
         # Add randomization: 70% API, 20% Database, 10% LLM
         rand = random.random()
@@ -124,9 +147,9 @@ class TruthDareCog(commands.Cog):
     def get_embed_color(self, question_type: str, rating: str):
         """Get appropriate embed color based on question type and rating."""
         if question_type == "truth":
-            return 0x00ff00 if rating == "PG" else 0xff6b6b  # Green for PG, Light Red for PG13
+            return 0x00ff00 if rating == "PG" else 0x00ff00 if rating == "PG13" else 0xff0000  # Green for PG, Light Red for PG13, Dark Red for R
         elif question_type == "dare":
-            return 0xff6b6b if rating == "PG" else 0xff0000  # Light Red for PG, Dark Red for PG13
+            return 0xff6b6b if rating in ["PG", "PG13"] else 0xff0000  # Light Red for PG/PG13, Dark Red for R
         else:
             return 0x0099ff  # Blue for WYR, NHIE, and others
 
@@ -143,7 +166,7 @@ class TruthDareCog(commands.Cog):
 
     def get_rating_icon(self, rating: str):
         """Get appropriate icon based on rating."""
-        return "👨‍👩‍👧‍👦" if rating == "PG" else "🔞"
+        return "👨‍👩‍👧‍👦" if rating in ["PG", "PG13"] else "🔞"
 
     def save_ai_question(self, question: str, question_type: str, rating: str):
         """Save AI-generated question to database and return question ID."""
@@ -192,11 +215,17 @@ class TruthDareCog(commands.Cog):
         app_commands.Choice(name="Paranoia", value="paranoia")
     ])
     @app_commands.choices(category=[
-        app_commands.Choice(name="Family Friendly", value="PG"),
-        app_commands.Choice(name="Adult Only", value="PG13")
+        app_commands.Choice(name="Family Friendly", value="PG13"),
+        app_commands.Choice(name="Adult Only", value="R")
     ])
-    async def slash_tod(self, interaction: discord.Interaction, action: str, category: str = "PG"):
-        """Main Truth or Dare slash command."""
+    async def slash_tod(self, interaction: discord.Interaction, action: str, category: str = "PG13"):
+        """
+        Start a Truth or Dare game with interactive buttons.
+        
+        Game Types: Truth, Dare, Random, Would You Rather, Never Have I Ever, Paranoia
+        Rating: Family Friendly (PG13) or Adult Only (R)
+        Buttons persist after bot restarts for continuous gameplay.
+        """
         try:
             await interaction.response.defer()
             
@@ -231,13 +260,6 @@ class TruthDareCog(commands.Cog):
             # Create view with improved buttons
             view = TruthDareView(action, category, self, requested_type=action)
             
-            # Add feedback section only for questions that need feedback
-            if question_id and source != "api":  # Don't add feedback for TOD API questions
-                if is_ai_question:
-                    embed.add_field(name="AI Generated", value="👍 if you like, 👎 if you don't", inline=False)
-                else:
-                    embed.add_field(name="Community Question", value="👍 if you like, 👎 if you don't", inline=False)
-            
             message = await interaction.followup.send(embed=embed, view=view)
             
             # Add emoji reactions only for questions that need feedback
@@ -259,11 +281,18 @@ class TruthDareCog(commands.Cog):
         app_commands.Choice(name="Never Have I Ever", value="nhie")
     ])
     @app_commands.choices(rating=[
-        app_commands.Choice(name="Family Friendly", value="PG"),
-        app_commands.Choice(name="Adult Only", value="PG13")
+        app_commands.Choice(name="Family Friendly", value="PG13"),
+        app_commands.Choice(name="Adult Only", value="R")
     ])
     async def slash_tod_submit(self, interaction: discord.Interaction, type: str, rating: str, question: str):
-        """Submit a custom Truth or Dare question."""
+        """
+        Submit your own Truth or Dare question to the community database.
+        
+        Args:
+            type: Question type (Truth, Dare, Would You Rather, Never Have I Ever)
+            rating: Family Friendly (PG13) or Adult Only (R)
+            question: Your question (max 200 characters)
+        """
         try:
             # Validate question length
             if len(question) > 200:
@@ -379,13 +408,6 @@ class ActionButton(discord.ui.Button):
             
             # Create new view
             view = TruthDareView(self.action, self.current_rating, self.cog, requested_type=self.requested_type)
-            
-            # Add feedback section only for questions that need feedback
-            if question_id and source != "api":  # Don't add feedback for TOD API questions
-                if is_ai_question:
-                    embed.add_field(name="AI Generated", value="👍 if you like, 👎 if you don't", inline=False)
-                else:
-                    embed.add_field(name="Community Question", value="👍 if you like, 👎 if you don't", inline=False)
             
             message = await interaction.followup.send(embed=embed, view=view)
             

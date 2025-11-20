@@ -24,6 +24,21 @@ class TriviaCog(commands.Cog):
 
     @commands.command(name="trivia")
     async def trivia(self, ctx, action: str, category: str = None, speed: str = "slow"):
+        """
+        Start, stop, or view trivia game leaderboard.
+        
+        Actions:
+            start: Start a trivia game (requires category)
+            stop: Stop current trivia game
+            leaderboard: View top players
+        
+        Categories: History, Science, Geography, Sports, Movies, Animals, Music, Video Games,
+                   Technology, Literature, Mythology, Food & Drink, Celebrities, Riddles,
+                   Space, Cars, Marvel & DC, Holidays
+        
+        Speed: slow (default) or fast
+        Uses interactive buttons for answering questions.
+        """
         guild_id = ctx.guild.id
 
         if action.lower() == "start":
@@ -42,6 +57,7 @@ class TriviaCog(commands.Cog):
 
     @commands.command(name="mystats")
     async def my_stats(self, ctx):
+        """View your personal trivia statistics (correct and wrong answers)."""
         user_id = ctx.author.id
         stats = astra_db_ops.get_user_stats(user_id)
 
@@ -50,6 +66,13 @@ class TriviaCog(commands.Cog):
         )
 
     @app_commands.command(name="trivia", description="Start or stop a trivia game")
+    async def slash_trivia(self, interaction: discord.Interaction, action: str, category: str = None, speed: str = "slow"):
+        """
+        Start, stop, or view trivia game leaderboard (slash command).
+        
+        Uses interactive buttons for answering questions.
+        Tracks scores and maintains leaderboards.
+        """
     @app_commands.describe(
         action="Choose to start or stop a trivia game",
         category="Select a trivia category (required for start, optional for stop)",

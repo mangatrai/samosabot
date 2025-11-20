@@ -6,12 +6,23 @@ This module serves as the primary entry point for the SamosaBot Discord bot. It 
     and AstraDB settings).
   - Setting up Discord bot intents and initializing the bot instance with both prefix and slash commands.
   - Registering and managing various commands and scheduled tasks, such as:
-      • Scheduled QOTD (Question of the Day) postings.
-      • Periodic bot status updates.
-      • Fun commands including jokes, roasts, compliments, pick-up lines, and fortune-telling.
-  - Interacting with AstraDB for persistent storage (e.g., QOTD schedules, bot status channels, and user statistics).
+      • Interactive Trivia Game with button-based answers, score tracking, and leaderboards
+      • Truth or Dare game with persistent buttons, multiple game types (Truth, Dare, WYR, NHIE, Paranoia),
+        and rating options (Family-friendly PG13 or Adult Only R)
+      • Random Facts (general and animal facts) with user submissions and feedback
+      • AI-Powered Jokes (dad, insult, general, dark, spooky) with user submissions and feedback
+      • Pickup Lines, Roasts, Compliments, and Fortune Telling
+      • Question of the Day (QOTD) with scheduling support
+      • AI Ask command with daily request limits and image generation
+      • Server verification system with setup wizard
+      • Scheduled QOTD postings (24-hour intervals)
+      • Periodic bot status updates (30-minute intervals)
+  - Interacting with AstraDB for persistent storage (e.g., QOTD schedules, bot status channels, 
+    user statistics, trivia leaderboards, truth/dare questions, jokes, facts, verification data).
   - Integrating with OpenAI via openai_utils to generate dynamic content based on user prompts.
-  - Loading additional bot extensions (joke_cog, trivia_cog, utils_cog, ask_cog) and synchronizing slash commands.
+  - Loading additional bot extensions (cogs) and synchronizing slash commands with retry logic.
+  - Handling persistent views for buttons that work even after bot restarts.
+  - Global command throttling and error handling.
   - Initiating a keep-alive web server to prevent the bot from being suspended in certain hosting environments.
   
 All events, command errors, and operational messages are logged using the logging module for debugging and monitoring.
@@ -148,6 +159,18 @@ async def bot_status_task():
 # Prefix Command for Bot Status
 @bot.command(name="samosa")
 async def samosa(ctx, action: str, channel: discord.TextChannel = None):
+    """
+    Configure bot status updates for the server.
+    
+    Actions:
+        - botstatus: Enable bot status updates (sends every 30 minutes to specified channel)
+        - disable: Disable bot status updates for this server
+    
+    Args:
+        ctx: Command context
+        action: Action to perform (botstatus or disable)
+        channel: Optional channel for bot status updates (defaults to current channel)
+    """
     if action.lower() == "botstatus":
         channel_id = channel.id if channel else ctx.channel.id  # Use input channel or default to current channel
         guild_id = ctx.guild.id
@@ -167,6 +190,13 @@ async def samosa(ctx, action: str, channel: discord.TextChannel = None):
 # Prefix Command for SetQOTD Channel
 @bot.command(name="setqotdchannel")
 async def set_qotd_channel(ctx, channel_id: int = None):
+    """
+    Set the channel for scheduled Question of the Day posts.
+    
+    Args:
+        ctx: Command context
+        channel_id: Optional channel ID (defaults to current channel if not provided)
+    """
     if channel_id is None:
         channel_id = ctx.channel.id  # Default to the current channel if none is provided
 
@@ -181,6 +211,11 @@ async def set_qotd_channel(ctx, channel_id: int = None):
 # Prefix Command for StartQOTD
 @bot.command(name="startqotd")
 async def start_qotd(ctx):
+    """
+    Start the scheduled Question of the Day task (posts every 24 hours).
+    
+    Requires a QOTD channel to be set first using !setqotdchannel.
+    """
 
     qotd_channels = load_qotd_schedules()  # ✅ Refresh data from DB
 
@@ -197,6 +232,7 @@ async def start_qotd(ctx):
 # Prefix Command for QOTD
 @bot.command(name="qotd")
 async def qotd(ctx):
+    """Get a random AI-generated Question of the Day."""
     content = openai_utils.generate_openai_response(qotd_prompt)
     await ctx.send(f"🌟 **Question of the Day:** {content}")
 
@@ -204,6 +240,7 @@ async def qotd(ctx):
 # Prefix Command for Pick-up Line
 @bot.command(name="pickup")
 async def pickup(ctx):
+    """Get a fun pickup line from RizzAPI or AI fallback."""
     # Try RizzAPI first
     content = get_rizzapi_pickup()
     if content is None:

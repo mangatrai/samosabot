@@ -99,6 +99,12 @@ truth_pg13_prompt = (
     "Examples: 'What's your biggest turn-on?' or 'What's the naughtiest thing you've done?'"
 )
 
+truth_r_prompt = (
+    "Generate an explicit, adult-oriented truth question for mature audiences. "
+    "Keep it under 15 words. Be direct and explicit about adult topics. "
+    "Examples: 'What's your wildest sexual fantasy?' or 'What's the kinkiest thing you've tried?'"
+)
+
 dare_pg_prompt = (
     "Generate a fun, family-friendly dare challenge for a party game. "
     "Keep it under 15 words. Make it entertaining but safe for all ages. "
@@ -111,16 +117,64 @@ dare_pg13_prompt = (
     "Examples: 'Give someone a 30-second massage' or 'Whisper something naughty in someone's ear'"
 )
 
-wyr_prompt = (
-    "Generate a fun 'Would You Rather' question for a party game. "
-    "Keep it under 15 words. Make it interesting and thought-provoking. "
+dare_r_prompt = (
+    "Generate an explicit, adult-oriented dare challenge for mature audiences. "
+    "Keep it under 15 words. Be direct and explicit about adult activities. "
+    "Examples: 'Strip down to your underwear' or 'Perform a sensual dance for the group'"
+)
+
+wyr_pg_prompt = (
+    "Generate a fun, family-friendly 'Would You Rather' question for a party game. "
+    "Keep it under 15 words. Make it interesting and thought-provoking but appropriate for all ages. "
     "Examples: 'Would you rather be able to fly or be invisible?' or 'Would you rather have unlimited money or unlimited time?'"
 )
 
-nhie_prompt = (
-    "Generate a fun 'Never Have I Ever' statement for a party game. "
-    "Keep it under 15 words. Make it interesting but not too personal. "
+wyr_pg13_prompt = (
+    "Generate a playful, flirty 'Would You Rather' question for adults on a date or party. "
+    "Keep it under 15 words. Be suggestive but not explicit. "
+    "Examples: 'Would you rather kiss someone you hate or never kiss again?' or 'Would you rather have a one-night stand or a long-term relationship?'"
+)
+
+wyr_r_prompt = (
+    "Generate an explicit, adult-oriented 'Would You Rather' question for mature audiences. "
+    "Keep it under 15 words. Be direct and explicit about adult topics. "
+    "Examples: 'Would you rather have sex in public or with a stranger?' or 'Would you rather try BDSM or a threesome?'"
+)
+
+nhie_pg_prompt = (
+    "Generate a fun, family-friendly 'Never Have I Ever' statement for a party game. "
+    "Keep it under 15 words. Make it interesting but appropriate for all ages. "
     "Examples: 'Never have I ever been to a concert' or 'Never have I ever lied about my age'"
+)
+
+nhie_pg13_prompt = (
+    "Generate a playful, flirty 'Never Have I Ever' statement for adults on a date or party. "
+    "Keep it under 15 words. Be suggestive but not explicit. "
+    "Examples: 'Never have I ever had a one-night stand' or 'Never have I ever sent a nude photo'"
+)
+
+nhie_r_prompt = (
+    "Generate an explicit, adult-oriented 'Never Have I Ever' statement for mature audiences. "
+    "Keep it under 15 words. Be direct and explicit about adult experiences. "
+    "Examples: 'Never have I ever had sex in public' or 'Never have I ever tried BDSM'"
+)
+
+paranoia_pg_prompt = (
+    "Generate a fun, family-friendly paranoia question for a party game. "
+    "Keep it under 15 words. Make it spooky but appropriate for all ages. "
+    "Examples: 'Who in this room would you trust with a secret?' or 'Who do you think is most likely to betray you?'"
+)
+
+paranoia_pg13_prompt = (
+    "Generate a playful, flirty paranoia question for adults on a date or party. "
+    "Keep it under 15 words. Be suggestive but not explicit. "
+    "Examples: 'Who in this room would you most want to kiss?' or 'Who do you think has the dirtiest mind?'"
+)
+
+paranoia_r_prompt = (
+    "Generate an explicit, adult-oriented paranoia question for mature audiences. "
+    "Keep it under 15 words. Be direct and explicit about adult topics. "
+    "Examples: 'Who in this room would you most want to have sex with?' or 'Who do you think has the kinkiest fantasies?'"
 )
 
 # Facts prompts

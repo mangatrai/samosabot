@@ -1,5 +1,16 @@
 """
-Facts Cog - Random facts from various APIs
+FactsCog Module
+
+This module provides a Discord cog for delivering random facts through both prefix and slash commands.
+It integrates with external APIs and OpenAI for fact generation, with support for user submissions
+and community feedback.
+
+Features:
+  - General facts and animal facts from real APIs
+  - AI-generated facts as fallback
+  - User submissions with community feedback (👍/👎 reactions)
+  - Database storage for community-submitted facts
+  - Rating options: Family Friendly (PG13) or Adult Only (R)
 """
 
 import discord
@@ -192,7 +203,12 @@ class FactsCog(commands.Cog):
         app_commands.Choice(name="Animals", value="animals")
     ])
     async def slash_fact(self, interaction: discord.Interaction, category: str = "general"):
-        """Main facts slash command"""
+        """
+        Get a random fact (slash command).
+        
+        Categories: General, Animals
+        Community-submitted facts support feedback via reactions.
+        """
         try:
             await interaction.response.defer()
             
@@ -226,10 +242,6 @@ class FactsCog(commands.Cog):
                         color=discord.Color.blue()
                     )
                     
-                    # Add fields for better information display
-                    embed.add_field(name="👤 Submitted by", value=submitted_by, inline=True)
-                    embed.add_field(name="📊 Community Fact", value="React with 👍 if you like this fact, 👎 if you don't!", inline=False)
-                    
                     # Send message with embed
                     message = await interaction.followup.send(embed=embed)
                     
@@ -259,7 +271,12 @@ class FactsCog(commands.Cog):
     
     @commands.command(name="fact")
     async def prefix_fact(self, ctx, category: str = "general"):
-        """Prefix command for facts"""
+        """
+        Get a random fact (prefix command).
+        
+        Categories: general, animals
+        Community-submitted facts support feedback via reactions.
+        """
         try:
             fact = None
             fact_id = None
@@ -321,10 +338,6 @@ class FactsCog(commands.Cog):
                         color=discord.Color.blue()
                     )
                     
-                    # Add fields for better information display
-                    embed.add_field(name="👤 Submitted by", value=submitted_by, inline=True)
-                    embed.add_field(name="📊 Community Fact", value="React with 👍 if you like this fact, 👎 if you don't!", inline=False)
-                    
                     # Send message with embed
                     message = await ctx.send(embed=embed)
                     
@@ -358,11 +371,18 @@ class FactsCog(commands.Cog):
         app_commands.Choice(name="Animal", value="animal_fact")
     ])
     @app_commands.choices(rating=[
-        app_commands.Choice(name="Family Friendly", value="PG"),
-        app_commands.Choice(name="Adult Only", value="PG13")
+        app_commands.Choice(name="Family Friendly", value="PG13"),
+        app_commands.Choice(name="Adult Only", value="R")
     ])
     async def slash_fact_submit(self, interaction: discord.Interaction, category: str, fact: str, rating: str = "PG"):
-        """Submit a custom fact."""
+        """
+        Submit your own fact to the community database.
+        
+        Args:
+            category: General or Animal fact
+            fact: Your fact (max 200 characters)
+            rating: Family Friendly (PG13) or Adult Only (R)
+        """
         try:
             # Validate fact length
             if len(fact) > 200:
