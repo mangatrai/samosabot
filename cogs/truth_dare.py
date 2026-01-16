@@ -7,7 +7,7 @@ community submissions with feedback collection.
 
 Features:
   - Multiple game types: Truth, Dare, Would You Rather, Never Have I Ever, Paranoia
-  - Rating options: Family-friendly (PG13) or Adult Only (R)
+  - Rating options: PG, PG13, or R
   - Persistent interactive buttons for continuous gameplay
   - User submissions with community feedback (👍/👎 reactions)
   - Multiple content sources: External API, community database, AI generation
@@ -51,9 +51,7 @@ class TruthDareCog(commands.Cog):
             if not endpoint:
                 return None, None
                 
-            url = f"{self.api_base_url}/{endpoint}"
-            if rating not in ["PG", "PG13"]:
-                url += f"?rating={rating}"
+            url = f"{self.api_base_url}/{endpoint}?rating={rating}"
                 
             response = requests.get(url, timeout=5)
             if response.status_code == 200:
@@ -112,16 +110,16 @@ class TruthDareCog(commands.Cog):
 
     async def get_question(self, question_type: str, rating: str = "PG13"):
         """Get a question using the priority: API -> Database -> LLM with randomization."""
-        # Add randomization: 70% API, 20% Database, 10% LLM
+        # Add randomization: 75% API, 20% Database, 5% LLM
         rand = random.random()
         
-        if rand < 0.7:
-            # Try API first (70% chance)
+        if rand < 0.75:
+            # Try API first (75% chance)
             question, question_id = self.get_api_question(question_type, rating)
             if question:
                 return question, "api", "API", question_type, rating, question_id
         
-        if rand < 0.9:
+        if rand < 0.95:
             # Try database (20% chance)
             question_data = self.get_database_question(question_type, rating)
             if question_data and question_data[0]: # Check if question_data is not None and has a question
@@ -130,7 +128,7 @@ class TruthDareCog(commands.Cog):
                 is_ai_question = self.is_ai_generated_question(question_id)
                 return question, "database", submitted_by, question_type, rating, question_id, is_ai_question
         
-        # Fallback to LLM (10% chance or if others fail)
+        # Fallback to LLM (5% chance or if others fail)
         question, creator_id = self.get_llm_question(question_type, rating)
         if question:
             # Store AI-generated question in database for future use
@@ -215,15 +213,16 @@ class TruthDareCog(commands.Cog):
         app_commands.Choice(name="Paranoia", value="paranoia")
     ])
     @app_commands.choices(category=[
-        app_commands.Choice(name="Family Friendly", value="PG13"),
-        app_commands.Choice(name="Adult Only", value="R")
+        app_commands.Choice(name="PG", value="PG"),
+        app_commands.Choice(name="PG13", value="PG13"),
+        app_commands.Choice(name="R", value="R")
     ])
-    async def slash_tod(self, interaction: discord.Interaction, action: str, category: str = "PG13"):
+    async def slash_tod(self, interaction: discord.Interaction, action: str, category: str):
         """
         Start a Truth or Dare game with interactive buttons.
         
         Game Types: Truth, Dare, Random, Would You Rather, Never Have I Ever, Paranoia
-        Rating: Family Friendly (PG13) or Adult Only (R)
+        Rating: PG, PG13, or R
         Buttons persist after bot restarts for continuous gameplay.
         """
         try:
@@ -281,8 +280,9 @@ class TruthDareCog(commands.Cog):
         app_commands.Choice(name="Never Have I Ever", value="nhie")
     ])
     @app_commands.choices(rating=[
-        app_commands.Choice(name="Family Friendly", value="PG13"),
-        app_commands.Choice(name="Adult Only", value="R")
+        app_commands.Choice(name="PG", value="PG"),
+        app_commands.Choice(name="PG13", value="PG13"),
+        app_commands.Choice(name="R", value="R")
     ])
     async def slash_tod_submit(self, interaction: discord.Interaction, type: str, rating: str, question: str):
         """
@@ -290,7 +290,7 @@ class TruthDareCog(commands.Cog):
         
         Args:
             type: Question type (Truth, Dare, Would You Rather, Never Have I Ever)
-            rating: Family Friendly (PG13) or Adult Only (R)
+            rating: PG, PG13, or R
             question: Your question (max 200 characters)
         """
         try:
