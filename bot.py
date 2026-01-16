@@ -233,37 +233,41 @@ async def start_qotd(ctx):
 @bot.command(name="qotd")
 async def qotd(ctx):
     """Get a random AI-generated Question of the Day."""
-    content = openai_utils.generate_openai_response(qotd_prompt)
-    await ctx.send(f"🌟 **Question of the Day:** {content}")
+    async with ctx.typing():
+        content = openai_utils.generate_openai_response(qotd_prompt)
+        await ctx.send(f"🌟 **Question of the Day:** {content}")
 
 
 # Prefix Command for Pick-up Line
 @bot.command(name="pickup")
 async def pickup(ctx):
     """Get a fun pickup line from RizzAPI or AI fallback."""
-    # Try RizzAPI first
-    content = get_rizzapi_pickup()
-    if content is None:
-        # Fallback to AI
-        content = openai_utils.generate_openai_response(pickup_prompt)
-    await ctx.send(f"💘 **Pick-up Line:** {content}")
+    async with ctx.typing():
+        # Try RizzAPI first
+        content = get_rizzapi_pickup()
+        if content is None:
+            # Fallback to AI
+            content = openai_utils.generate_openai_response(pickup_prompt)
+        await ctx.send(f"💘 **Pick-up Line:** {content}")
 
 #Compliment Machine
 @bot.command(name="compliment")
 async def compliment(ctx, user: discord.Member = None):
     """Generate a compliment for a user."""
-    target = user.display_name if user else ctx.author.display_name
-    prompt = f"Generate a wholesome and genuine compliment for {target}."
-    content = openai_utils.generate_openai_response(prompt)
-    await ctx.send(f"💖 {content}")
+    async with ctx.typing():
+        target = user.display_name if user else ctx.author.display_name
+        prompt = f"Generate a wholesome and genuine compliment for {target}."
+        content = openai_utils.generate_openai_response(prompt)
+        await ctx.send(f"💖 {content}")
 
 #AI-Powered Fortune Teller
 @bot.command(name="fortune")
 async def fortune(ctx):
     """Give a user their AI-powered fortune."""
-    prompt = "Generate a fun, unpredictable, and mystical fortune-telling message. Keep it engaging and lighthearted."
-    content = openai_utils.generate_openai_response(prompt)
-    await ctx.send(f"🔮 **Your fortune:** {content}")
+    async with ctx.typing():
+        prompt = "Generate a fun, unpredictable, and mystical fortune-telling message. Keep it engaging and lighthearted."
+        content = openai_utils.generate_openai_response(prompt)
+        await ctx.send(f"🔮 **Your fortune:** {content}")
 
 # Prefix command to ListServers who have bot registered
 @bot.command(name="listservers")
@@ -320,12 +324,13 @@ async def slash_qotd(interaction: discord.Interaction):
 # Slash Command with Pickup
 @tree.command(name="pickup", description="Get a pick-up line")
 async def slash_pickup(interaction: discord.Interaction):
+    await interaction.response.defer()
     # Try RizzAPI first
     content = get_rizzapi_pickup()
     if content is None:
         # Fallback to AI
         content = openai_utils.generate_openai_response(pickup_prompt)
-    await interaction.response.send_message(f"💘 **Pick-up Line:** {content}")
+    await interaction.followup.send(f"💘 **Pick-up Line:** {content}")
 
 @bot.event
 async def on_ready():

@@ -32,15 +32,15 @@ load_dotenv()
 
 # API functions
 def get_dad_joke():
-    """Get dad joke with priority: API (70%) -> Database (20%) -> AI (10%)"""
+    """Get dad joke with priority: API (75%) -> Database (20%) -> AI (5%)"""
     import random
     from utils import astra_db_ops
     
-    # Add randomization: 70% API, 20% Database, 10% AI
+    # Add randomization: 75% API, 20% Database, 5% AI
     rand = random.random()
     
-    if rand < 0.7:
-        # Try API first (70% chance)
+    if rand < 0.75:
+        # Try API first (75% chance)
         try:
             response = requests.get(os.getenv("ICANHAZDADJOKE_URL"), headers={"Accept": "application/json"}, timeout=5)
             if response.status_code == 200:
@@ -50,7 +50,7 @@ def get_dad_joke():
         except Exception as e:
             logging.error(f"Error getting dad joke from API: {e}")
     
-    if rand < 0.9:
+    if rand < 0.95:
         # Try database (20% chance)
         try:
             joke_data = astra_db_ops.get_random_truth_dare_question("dad_joke", "PG")
@@ -63,7 +63,7 @@ def get_dad_joke():
         except Exception as e:
             logging.error(f"Error getting dad joke from database: {e}")
     
-    # Fallback to AI (10% chance or if others fail)
+    # Fallback to AI (5% chance or if others fail)
     try:
         joke_response = openai_utils.generate_openai_response(prompts.joke_dad_prompt)
         if joke_response:
@@ -363,8 +363,9 @@ class JokeCog(commands.Cog):
 
     @app_commands.command(name="joke-submit", description="Submit your own dad joke")
     @app_commands.choices(rating=[
-        app_commands.Choice(name="Family Friendly", value="PG"),
-        app_commands.Choice(name="Adult Only", value="PG13")
+        app_commands.Choice(name="PG", value="PG"),
+        app_commands.Choice(name="PG13", value="PG13"),
+        app_commands.Choice(name="R", value="R")
     ])
     async def slash_joke_submit(self, interaction: discord.Interaction, joke: str, rating: str = "PG"):
         """
@@ -372,7 +373,7 @@ class JokeCog(commands.Cog):
         
         Args:
             joke: Your joke (max 200 characters)
-            rating: Family Friendly (PG) or Adult Only (PG13)
+            rating: PG, PG13, or R
         """
         try:
             # Validate joke length first

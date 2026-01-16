@@ -10,7 +10,7 @@ Features:
   - AI-generated facts as fallback
   - User submissions with community feedback (👍/👎 reactions)
   - Database storage for community-submitted facts
-  - Rating options: Family Friendly (PG13) or Adult Only (R)
+  - Rating options: PG, PG13, or R
 """
 
 import discord
@@ -35,14 +35,14 @@ class FactsCog(commands.Cog):
         logging.info("Facts Cog loaded")
     
     def get_general_fact(self):
-        """Get general fact with priority: API (70%) -> Database (20%) -> AI (10%)"""
+        """Get general fact with priority: API (75%) -> Database (20%) -> AI (5%)"""
         from utils import astra_db_ops
         
-        # Add randomization: 70% API, 20% Database, 10% AI
+        # Add randomization: 75% API, 20% Database, 5% AI
         rand = random.random()
         
-        if rand < 0.7:
-            # Try API first (70% chance)
+        if rand < 0.75:
+            # Try API first (75% chance)
             try:
                 api_url = os.getenv("USELESS_FACTS_API_URL", "https://uselessfacts.jsph.pl/api/v2/facts/random?language=en")
                 response = requests.get(api_url, timeout=5)
@@ -54,7 +54,7 @@ class FactsCog(commands.Cog):
             except Exception as e:
                 logging.error(f"Error getting general fact from API: {e}")
         
-        if rand < 0.9:
+        if rand < 0.95:
             # Try database (20% chance)
             try:
                 fact_data = astra_db_ops.get_random_truth_dare_question("general_fact", "PG")
@@ -67,7 +67,7 @@ class FactsCog(commands.Cog):
             except Exception as e:
                 logging.error(f"Error getting general fact from database: {e}")
         
-        # Fallback to AI (10% chance or if others fail)
+        # Fallback to AI (5% chance or if others fail)
         try:
             fact = self.get_ai_fact("general")
             if fact:
@@ -102,14 +102,14 @@ class FactsCog(commands.Cog):
         return None, None, None, None
     
     def get_animal_fact(self):
-        """Get animal fact with priority: API (70%) -> Database (20%) -> AI (10%)"""
+        """Get animal fact with priority: API (75%) -> Database (20%) -> AI (5%)"""
         from utils import astra_db_ops
         
-        # Add randomization: 70% API, 20% Database, 10% AI
+        # Add randomization: 75% API, 20% Database, 5% AI
         rand = random.random()
         
-        if rand < 0.7:
-            # Try API first (70% chance)
+        if rand < 0.75:
+            # Try API first (75% chance)
             try:
                 # Randomly choose between cat and dog facts
                 if random.choice([True, False]):
@@ -135,7 +135,7 @@ class FactsCog(commands.Cog):
             except Exception as e:
                 logging.error(f"Error getting animal fact from API: {e}")
         
-        if rand < 0.9:
+        if rand < 0.95:
             # Try database (20% chance)
             try:
                 fact_data = astra_db_ops.get_random_truth_dare_question("animal_fact", "PG")
@@ -148,7 +148,7 @@ class FactsCog(commands.Cog):
             except Exception as e:
                 logging.error(f"Error getting animal fact from database: {e}")
         
-        # Fallback to AI (10% chance or if others fail)
+        # Fallback to AI (5% chance or if others fail)
         try:
             fact = self.get_ai_fact("animals")
             if fact:
@@ -277,93 +277,94 @@ class FactsCog(commands.Cog):
         Categories: general, animals
         Community-submitted facts support feedback via reactions.
         """
-        try:
-            fact = None
-            fact_id = None
-            source = None
-            submitted_by = None
-            
-            if category.lower() in ["general", "g"]:
-                result = self.get_general_fact()
-                if result and result[0]:
-                    fact, source, fact_id, submitted_by = result
-                else:
-                    # Store AI-generated content in database for feedback collection
-                    fact = self.get_ai_fact("general")
-                    if fact:
-                        from utils import astra_db_ops
-                        fact_id = astra_db_ops.save_truth_dare_question(
-                            guild_id=str(ctx.guild.id),
-                            user_id="ai",
-                            question=fact,
-                            question_type="general_fact",
-                            rating="PG",
-                            source="llm",
-                            submitted_by="AI"
-                        )
-                        source = "llm"
-                        submitted_by = "AI"
-            elif category.lower() in ["animals", "animal", "a"]:
-                result = self.get_animal_fact()
-                if result and result[0]:
-                    fact, source, fact_id, submitted_by = result
-                else:
-                    # Store AI-generated content in database for feedback collection
-                    fact = self.get_ai_fact("animals")
-                    if fact:
-                        from utils import astra_db_ops
-                        fact_id = astra_db_ops.save_truth_dare_question(
-                            guild_id=str(ctx.guild.id),
-                            user_id="ai",
-                            question=fact,
-                            question_type="animal_fact",
-                            rating="PG",
-                            source="llm",
-                            submitted_by="AI"
-                        )
-                        source = "llm"
-                        submitted_by = "AI"
-            else:
-                await ctx.send("❌ Invalid category! Use `general` or `animals`")
-                return
-            
-            if fact:
-                # Handle feedback collection for database content (including AI-generated)
-                if fact_id:
-                    # Create embed for database content
-                    category_icon = "📚" if category.lower() in ["general", "g"] else "🐾"
-                    embed = discord.Embed(
-                        title=f"{category_icon} {category.title()} Fact",
-                        description=fact,
-                        color=discord.Color.blue()
-                    )
-                    
-                    # Send message with embed
-                    message = await ctx.send(embed=embed)
-                    
-                    # Add emoji reactions for feedback collection
-                    await message.add_reaction("👍")
-                    await message.add_reaction("👎")
-                    
-                    # Save message metadata for reaction tracking
-                    from utils import astra_db_ops
-                    astra_db_ops.add_message_metadata(fact_id, str(message.id), str(ctx.guild.id), str(ctx.channel.id))
-                else:
-                    # Regular fact display for API/AI content
-                    embed = discord.Embed(
-                        title="📚 Random Fact",
-                        description=fact,
-                        color=discord.Color.blue()
-                    )
-                    embed.add_field(name="💡 Tip", value="Use `/fact-submit` to share your own facts!", inline=False)
-                    embed.set_footer(text=f"Category: {category.title()}")
-                    await ctx.send(embed=embed)
-            else:
-                await ctx.send("❌ Sorry, I couldn't get a fact right now. Try again later!")
+        async with ctx.typing():
+            try:
+                fact = None
+                fact_id = None
+                source = None
+                submitted_by = None
                 
-        except Exception as e:
-            logging.error(f"Error in prefix_fact: {e}")
-            await ctx.send("❌ An error occurred while getting your fact.")
+                if category.lower() in ["general", "g"]:
+                    result = self.get_general_fact()
+                    if result and result[0]:
+                        fact, source, fact_id, submitted_by = result
+                    else:
+                        # Store AI-generated content in database for feedback collection
+                        fact = self.get_ai_fact("general")
+                        if fact:
+                            from utils import astra_db_ops
+                            fact_id = astra_db_ops.save_truth_dare_question(
+                                guild_id=str(ctx.guild.id),
+                                user_id="ai",
+                                question=fact,
+                                question_type="general_fact",
+                                rating="PG",
+                                source="llm",
+                                submitted_by="AI"
+                            )
+                            source = "llm"
+                            submitted_by = "AI"
+                elif category.lower() in ["animals", "animal", "a"]:
+                    result = self.get_animal_fact()
+                    if result and result[0]:
+                        fact, source, fact_id, submitted_by = result
+                    else:
+                        # Store AI-generated content in database for feedback collection
+                        fact = self.get_ai_fact("animals")
+                        if fact:
+                            from utils import astra_db_ops
+                            fact_id = astra_db_ops.save_truth_dare_question(
+                                guild_id=str(ctx.guild.id),
+                                user_id="ai",
+                                question=fact,
+                                question_type="animal_fact",
+                                rating="PG",
+                                source="llm",
+                                submitted_by="AI"
+                            )
+                            source = "llm"
+                            submitted_by = "AI"
+                else:
+                    await ctx.send("❌ Invalid category! Use `general` or `animals`")
+                    return
+                
+                if fact:
+                    # Handle feedback collection for database content (including AI-generated)
+                    if fact_id:
+                        # Create embed for database content
+                        category_icon = "📚" if category.lower() in ["general", "g"] else "🐾"
+                        embed = discord.Embed(
+                            title=f"{category_icon} {category.title()} Fact",
+                            description=fact,
+                            color=discord.Color.blue()
+                        )
+                        
+                        # Send message with embed
+                        message = await ctx.send(embed=embed)
+                        
+                        # Add emoji reactions for feedback collection
+                        await message.add_reaction("👍")
+                        await message.add_reaction("👎")
+                        
+                        # Save message metadata for reaction tracking
+                        from utils import astra_db_ops
+                        astra_db_ops.add_message_metadata(fact_id, str(message.id), str(ctx.guild.id), str(ctx.channel.id))
+                    else:
+                        # Regular fact display for API/AI content
+                        embed = discord.Embed(
+                            title="📚 Random Fact",
+                            description=fact,
+                            color=discord.Color.blue()
+                        )
+                        embed.add_field(name="💡 Tip", value="Use `/fact-submit` to share your own facts!", inline=False)
+                        embed.set_footer(text=f"Category: {category.title()}")
+                        await ctx.send(embed=embed)
+                else:
+                    await ctx.send("❌ Sorry, I couldn't get a fact right now. Try again later!")
+                    
+            except Exception as e:
+                logging.error(f"Error in prefix_fact: {e}")
+                await ctx.send("❌ An error occurred while getting your fact.")
 
     @app_commands.command(name="fact-submit", description="Submit your own fact")
     @app_commands.choices(category=[
@@ -371,8 +372,9 @@ class FactsCog(commands.Cog):
         app_commands.Choice(name="Animal", value="animal_fact")
     ])
     @app_commands.choices(rating=[
-        app_commands.Choice(name="Family Friendly", value="PG13"),
-        app_commands.Choice(name="Adult Only", value="R")
+        app_commands.Choice(name="PG", value="PG"),
+        app_commands.Choice(name="PG13", value="PG13"),
+        app_commands.Choice(name="R", value="R")
     ])
     async def slash_fact_submit(self, interaction: discord.Interaction, category: str, fact: str, rating: str = "PG"):
         """
@@ -381,7 +383,7 @@ class FactsCog(commands.Cog):
         Args:
             category: General or Animal fact
             fact: Your fact (max 200 characters)
-            rating: Family Friendly (PG13) or Adult Only (R)
+            rating: PG, PG13, or R
         """
         try:
             # Validate fact length

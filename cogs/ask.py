@@ -87,9 +87,10 @@ class AskCog(commands.Cog):
         
         All requests are logged to AstraDB for tracking.
         """
-        # Preprocess the question to replace any user mentions with display names.
-        question = replace_mentions_with_username(question, ctx)
-        await self.handle_request(ctx, question)
+        async with ctx.typing():
+            # Preprocess the question to replace any user mentions with display names.
+            question = replace_mentions_with_username(question, ctx)
+            await self.handle_request(ctx, question)
 
     @app_commands.command(name="ask", description="Ask a question or generate an image.")
     async def ask_slash(self, interaction: discord.Interaction, question: str):

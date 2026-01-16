@@ -47,10 +47,11 @@ class RoastCog(commands.Cog):
             ctx (commands.Context): The context of the command.
             user (discord.Member, optional): The user to roast.
         """
-        target = user.display_name if user else ctx.author.display_name
-        prompt = prompts.roast_prompt.format(target=target)
-        content = openai_utils.generate_openai_response(prompt)
-        await ctx.send(f"🔥 {content}")
+        async with ctx.typing():
+            target = user.display_name if user else ctx.author.display_name
+            prompt = prompts.roast_prompt.format(target=target)
+            content = openai_utils.generate_openai_response(prompt)
+            await ctx.send(f"🔥 {content}")
 
     @app_commands.command(name="roast", description="Generate a witty roast for a user.")
     @app_commands.describe(user="The user to roast (optional)")
