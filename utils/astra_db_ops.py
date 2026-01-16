@@ -327,16 +327,19 @@ def increment_daily_request_count(user_id):
     except Exception as e:
         logging.error(f"Error incrementing daily request count: {e}")
 
-def register_or_update_guild(guild_id: int, guild_name: str,status):
+def register_or_update_guild(guild_id: int, guild_name: str, status, owner_id: str = None,
+                            owner_name: str = None, server_created_at: str = None,
+                            description: str = None, member_count: int = None,
+                            icon_url: str = None, banner_url: str = None,
+                            verification_level: int = None, premium_tier: int = None,
+                            premium_subscription_count: int = None, features: list = None,
+                            vanity_url_code: str = None, preferred_locale: str = None,
+                            nsfw_level: int = None):
     """
-    Register a guild by saving its ID, name, installation date, status, and last updated date.
+    Register or update a guild with comprehensive metadata.
     
-    If the guild is not already registered, insert a new record with:
-      - installed_at: current UTC time
-      - status: "JOINED"
-      - lastupdatedat: current UTC time
-    If the guild already exists, update its guild_name, set status to "JOINED", and update lastupdatedat
-    to the current UTC time.
+    If the guild is not already registered, insert a new record with all provided metadata.
+    If the guild already exists, update guild_name, status, lastupdatedat, and all provided metadata fields.
     """
     collection = get_registered_servers_collection()
     if collection is None:
@@ -344,30 +347,79 @@ def register_or_update_guild(guild_id: int, guild_name: str,status):
     try:
         now = datetime.datetime.utcnow().isoformat()
         existing_record = collection.find_one({"guild_id": str(guild_id)})
+        
+        # Build update document with only provided fields
+        update_fields = {
+            "guild_name": guild_name,
+            "status": status,
+            "lastupdatedat": now
+        }
+        
+        # Add optional fields if provided
+        if owner_id is not None:
+            update_fields["owner_id"] = owner_id
+        if owner_name is not None:
+            update_fields["owner_name"] = owner_name
+        if server_created_at is not None:
+            update_fields["server_created_at"] = server_created_at
+        if description is not None:
+            update_fields["description"] = description
+        if member_count is not None:
+            update_fields["member_count"] = member_count
+        if icon_url is not None:
+            update_fields["icon_url"] = icon_url
+        if banner_url is not None:
+            update_fields["banner_url"] = banner_url
+        if verification_level is not None:
+            update_fields["verification_level"] = verification_level
+        if premium_tier is not None:
+            update_fields["premium_tier"] = premium_tier
+        if premium_subscription_count is not None:
+            update_fields["premium_subscription_count"] = premium_subscription_count
+        if features is not None:
+            update_fields["features"] = features
+        if vanity_url_code is not None:
+            update_fields["vanity_url_code"] = vanity_url_code
+        if preferred_locale is not None:
+            update_fields["preferred_locale"] = preferred_locale
+        if nsfw_level is not None:
+            update_fields["nsfw_level"] = nsfw_level
+        
         if not existing_record:
             # Insert new record
             document = {
                 "guild_id": str(guild_id),
-                "guild_name": guild_name,
                 "installed_at": now,
-                "status": status,
-                "lastupdatedat": now
+                **update_fields
             }
             collection.insert_one(document)
             logging.debug(f"Inserted new guild record: {guild_name} ({guild_id}) at {now}")
         else:
-            # Update existing record: update guild_name, set status to "JOINED", and update lastupdatedat.
+            # Update existing record
             collection.update_one(
                 {"guild_id": str(guild_id)},
-                {"$set": {
-                    "guild_name": guild_name,
-                    "status": status,
-                    "lastupdatedat": now
-                }}
+                {"$set": update_fields}
             )
             logging.debug(f"Updated guild record: {guild_name} ({guild_id}) with lastupdatedat {now}")
     except Exception as e:
         logging.error(f"Error in register_or_update_guild: {e}")
+
+def update_guild_added_by(guild_id: str, user_id: str, username: str):
+    """Update added_by fields if not already set (first user heuristic)."""
+    try:
+        collection = get_registered_servers_collection()
+        if collection is None:
+            return
+        
+        # Only update if added_by_user_id doesn't exist
+        result = collection.update_one(
+            {"guild_id": guild_id, "added_by_user_id": {"$exists": False}},
+            {"$set": {"added_by_user_id": user_id, "added_by_username": username}}
+        )
+        if result.modified_count > 0:
+            logging.debug(f"Updated added_by for guild {guild_id}: {username} ({user_id})")
+    except Exception as e:
+        logging.error(f"Error updating guild added_by: {e}")
 
 def list_registered_servers():
     """
@@ -749,13 +801,15 @@ def get_random_truth_dare_question(question_type: str, rating: str = "PG"):
 
 def save_truth_dare_question(guild_id: str, user_id: str, question: str, 
                            question_type: str, rating: str, source: str, 
-                           submitted_by: str = None):
+                           submitted_by: str = None, guild_name: str = None,
+                           command_name: str = None, username: str = None):
     """Save a truth/dare question to the database and return the document ID."""
     try:
         collection = get_truth_dare_questions_collection()
         if collection is None:
             return None
         
+        now = datetime.datetime.utcnow().isoformat()
         document = {
             "guild_id": guild_id,
             "user_id": user_id,
@@ -768,9 +822,12 @@ def save_truth_dare_question(guild_id: str, user_id: str, question: str,
             "positive_feedback": 0,
             "negative_feedback": 0,
             "usage_count": 0,
-            "created_at": datetime.datetime.utcnow().isoformat(),
-            "last_used": None,
-            "message_metadata": []  # Array to store message metadata for reaction tracking
+            "created_at": now,
+            "last_used": now,  # Set to created_at for new questions
+            "message_metadata": [],  # Array to store message metadata for reaction tracking
+            "guild_name": guild_name,
+            "command_name": command_name,
+            "username": username
         }
         
         result = collection.insert_one(document)
@@ -792,6 +849,22 @@ def get_truth_dare_question_by_id(question_id: str):
     except Exception as e:
         logging.error(f"Error getting question by ID: {e}")
         return None
+
+def update_question_last_used(question_id: str):
+    """Update the last_used timestamp when a question is presented in UI."""
+    try:
+        if not question_id:
+            return
+        collection = get_truth_dare_questions_collection()
+        if collection is None:
+            return
+        
+        collection.update_one(
+            {"_id": question_id},
+            {"$set": {"last_used": datetime.datetime.utcnow().isoformat()}}
+        )
+    except Exception as e:
+        logging.error(f"Error updating question last_used: {e}")
 
 def record_question_feedback(question_id: str, feedback: str):
     """Record feedback for a question."""

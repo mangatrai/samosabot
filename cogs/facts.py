@@ -34,7 +34,8 @@ class FactsCog(commands.Cog):
         self.bot = bot
         logging.info("Facts Cog loaded")
     
-    def get_general_fact(self):
+    def get_general_fact(self, guild_id: str = None, guild_name: str = None, 
+                        user_id: str = None, username: str = None, command_name: str = "fact"):
         """Get general fact with priority: API (75%) -> Database (20%) -> AI (5%)"""
         from utils import astra_db_ops
         
@@ -73,13 +74,16 @@ class FactsCog(commands.Cog):
             if fact:
                 # Store AI-generated fact in database for future use
                 fact_id = astra_db_ops.save_truth_dare_question(
-                    guild_id="system",
-                    user_id="ai",
+                    guild_id=guild_id or "system",
+                    user_id=user_id or "ai",
                     question=fact,
                     question_type="general_fact",
                     rating="PG",
                     source="llm",
-                    submitted_by="AI"
+                    submitted_by="AI",
+                    guild_name=guild_name,
+                    command_name=command_name,
+                    username=username
                 )
                 logging.debug(f"AI-generated general fact: {fact}")
                 logging.debug(f"AI-generated fact_id: {fact_id}")
@@ -101,7 +105,8 @@ class FactsCog(commands.Cog):
         
         return None, None, None, None
     
-    def get_animal_fact(self):
+    def get_animal_fact(self, guild_id: str = None, guild_name: str = None,
+                       user_id: str = None, username: str = None, command_name: str = "fact"):
         """Get animal fact with priority: API (75%) -> Database (20%) -> AI (5%)"""
         from utils import astra_db_ops
         
@@ -154,13 +159,16 @@ class FactsCog(commands.Cog):
             if fact:
                 # Store AI-generated fact in database for future use
                 fact_id = astra_db_ops.save_truth_dare_question(
-                    guild_id="system",
-                    user_id="ai",
+                    guild_id=guild_id or "system",
+                    user_id=user_id or "ai",
                     question=fact,
                     question_type="animal_fact",
                     rating="PG",
                     source="llm",
-                    submitted_by="AI"
+                    submitted_by="AI",
+                    guild_name=guild_name,
+                    command_name=command_name,
+                    username=username
                 )
                 logging.debug(f"AI-generated animal fact: {fact}")
                 logging.debug(f"AI-generated fact_id: {fact_id}")
@@ -212,19 +220,25 @@ class FactsCog(commands.Cog):
         try:
             await interaction.response.defer()
             
+            guild_id = str(interaction.guild_id) if interaction.guild_id else None
+            guild_name = interaction.guild.name if interaction.guild else None
+            user_id = str(interaction.user.id)
+            username = interaction.user.display_name
+            command_name = "fact"
+            
             fact = None
             fact_id = None
             source = None
             submitted_by = None
             
             if category == "general":
-                result = self.get_general_fact()
+                result = self.get_general_fact(guild_id, guild_name, user_id, username, command_name)
                 if result and result[0]:
                     fact, source, fact_id, submitted_by = result
                 else:
                     fact = self.get_ai_fact("general")
             elif category == "animals":
-                result = self.get_animal_fact()
+                result = self.get_animal_fact(guild_id, guild_name, user_id, username, command_name)
                 if result and result[0]:
                     fact, source, fact_id, submitted_by = result
                 else:
@@ -234,6 +248,10 @@ class FactsCog(commands.Cog):
                 # Handle feedback collection for database content (including AI-generated)
                 logging.debug(f"Fact condition check - fact_id: {fact_id}, type: {type(fact_id)}")
                 if fact_id:
+                    # Update last_used for database facts
+                    from utils import astra_db_ops
+                    astra_db_ops.update_question_last_used(fact_id)
+                    
                     # Create embed for database content
                     category_icon = "📚" if category == "general" else "🐾"
                     embed = discord.Embed(
@@ -250,7 +268,6 @@ class FactsCog(commands.Cog):
                     await message.add_reaction("👎")
                     
                     # Save message metadata for reaction tracking
-                    from utils import astra_db_ops
                     astra_db_ops.add_message_metadata(fact_id, str(message.id), str(interaction.guild_id), str(interaction.channel_id))
                 else:
                     # Regular fact display for API/AI content
@@ -279,13 +296,19 @@ class FactsCog(commands.Cog):
         """
         async with ctx.typing():
             try:
+                guild_id = str(ctx.guild.id) if ctx.guild else None
+                guild_name = ctx.guild.name if ctx.guild else None
+                user_id = str(ctx.author.id)
+                username = ctx.author.display_name
+                command_name = "fact"
+                
                 fact = None
                 fact_id = None
                 source = None
                 submitted_by = None
                 
                 if category.lower() in ["general", "g"]:
-                    result = self.get_general_fact()
+                    result = self.get_general_fact(guild_id, guild_name, user_id, username, command_name)
                     if result and result[0]:
                         fact, source, fact_id, submitted_by = result
                     else:
@@ -294,18 +317,21 @@ class FactsCog(commands.Cog):
                         if fact:
                             from utils import astra_db_ops
                             fact_id = astra_db_ops.save_truth_dare_question(
-                                guild_id=str(ctx.guild.id),
-                                user_id="ai",
+                                guild_id=guild_id or "system",
+                                user_id=user_id or "ai",
                                 question=fact,
                                 question_type="general_fact",
                                 rating="PG",
                                 source="llm",
-                                submitted_by="AI"
+                                submitted_by="AI",
+                                guild_name=guild_name,
+                                command_name=command_name,
+                                username=username
                             )
                             source = "llm"
                             submitted_by = "AI"
                 elif category.lower() in ["animals", "animal", "a"]:
-                    result = self.get_animal_fact()
+                    result = self.get_animal_fact(guild_id, guild_name, user_id, username, command_name)
                     if result and result[0]:
                         fact, source, fact_id, submitted_by = result
                     else:
@@ -314,13 +340,16 @@ class FactsCog(commands.Cog):
                         if fact:
                             from utils import astra_db_ops
                             fact_id = astra_db_ops.save_truth_dare_question(
-                                guild_id=str(ctx.guild.id),
-                                user_id="ai",
+                                guild_id=guild_id or "system",
+                                user_id=user_id or "ai",
                                 question=fact,
                                 question_type="animal_fact",
                                 rating="PG",
                                 source="llm",
-                                submitted_by="AI"
+                                submitted_by="AI",
+                                guild_name=guild_name,
+                                command_name=command_name,
+                                username=username
                             )
                             source = "llm"
                             submitted_by = "AI"
@@ -331,6 +360,10 @@ class FactsCog(commands.Cog):
                 if fact:
                     # Handle feedback collection for database content (including AI-generated)
                     if fact_id:
+                        # Update last_used for database facts
+                        from utils import astra_db_ops
+                        astra_db_ops.update_question_last_used(fact_id)
+                        
                         # Create embed for database content
                         category_icon = "📚" if category.lower() in ["general", "g"] else "🐾"
                         embed = discord.Embed(
@@ -347,7 +380,6 @@ class FactsCog(commands.Cog):
                         await message.add_reaction("👎")
                         
                         # Save message metadata for reaction tracking
-                        from utils import astra_db_ops
                         astra_db_ops.add_message_metadata(fact_id, str(message.id), str(ctx.guild.id), str(ctx.channel.id))
                     else:
                         # Regular fact display for API/AI content
@@ -402,7 +434,10 @@ class FactsCog(commands.Cog):
                 question_type=category,
                 rating=rating,
                 source="user",
-                submitted_by=interaction.user.display_name
+                submitted_by=interaction.user.display_name,
+                guild_name=interaction.guild.name if interaction.guild else None,
+                command_name="fact-submit",
+                username=interaction.user.display_name
             )
             
             if fact_id:

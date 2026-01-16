@@ -73,6 +73,9 @@ intents.message_content = True  # Enable message content intent
 bot = commands.Bot(command_prefix=PREFIX, intents=intents)
 tree = bot.tree
 
+# First user heuristic tracking
+newly_joined_guilds = set()  # Track guilds that just joined for first user detection
+
 # QOTD Schedule Tracking
 qotd_channels = {}  # Dictionary to store QOTD channel IDs per server
 # Global dictionary to track user command timestamps
@@ -375,7 +378,7 @@ async def on_ready():
         for attempt in range(2):
             try:
                 await tree.sync(guild=guild)
-                astra_db_ops.register_or_update_guild(guild.id, guild.name,"JOINED")
+                register_guild_with_metadata(guild, "JOINED")
                 logging.info(f"[SUCCESS] Synced slash commands for {guild.name} ({guild.id})")
                 break
             except Exception as e:
@@ -387,10 +390,20 @@ async def on_ready():
 async def global_throttle_check(ctx):
     """
     Global check to throttle commands per user, excluding exempt commands.
+    Also tracks first user after bot joins a guild (heuristic for added_by).
     
     Raises:
         commands.CommandOnCooldown: If the user is sending commands too frequently.
     """
+    # First user heuristic: track first command after guild join
+    if ctx.guild and str(ctx.guild.id) in newly_joined_guilds:
+        newly_joined_guilds.discard(str(ctx.guild.id))  # Remove from tracking
+        astra_db_ops.update_guild_added_by(
+            str(ctx.guild.id),
+            str(ctx.author.id),
+            ctx.author.display_name
+        )
+    
     command_name = ctx.command.name if ctx.command else ""
     retry_after = throttle.check_command_throttle(ctx.author.id, command_name)
 
@@ -400,15 +413,101 @@ async def global_throttle_check(ctx):
 
     return True
 
+def extract_guild_metadata(guild: discord.Guild):
+    """Extract all available guild metadata."""
+    # Get owner info
+    owner_id = str(guild.owner_id) if guild.owner_id else None
+    owner_name = None
+    if guild.owner:
+        owner_name = guild.owner.display_name
+    elif owner_id:
+        # Try to fetch if not cached
+        try:
+            owner = guild.get_member(guild.owner_id)
+            if owner:
+                owner_name = owner.display_name
+        except:
+            pass
+    
+    # Get server creation date
+    server_created_at = guild.created_at.isoformat() if guild.created_at else None
+    
+    # Get other metadata
+    description = guild.description if hasattr(guild, 'description') else None
+    member_count = guild.member_count if guild.member_count else None
+    icon_url = str(guild.icon.url) if guild.icon else None
+    banner_url = str(guild.banner.url) if guild.banner else None
+    verification_level = guild.verification_level.value if guild.verification_level else None
+    premium_tier = guild.premium_tier if hasattr(guild, 'premium_tier') else None
+    premium_subscription_count = guild.premium_subscription_count if hasattr(guild, 'premium_subscription_count') else None
+    features = list(guild.features) if hasattr(guild, 'features') and guild.features else None
+    vanity_url_code = guild.vanity_url_code if hasattr(guild, 'vanity_url_code') and guild.vanity_url_code else None
+    preferred_locale = str(guild.preferred_locale) if hasattr(guild, 'preferred_locale') else None
+    nsfw_level = guild.nsfw_level.value if hasattr(guild, 'nsfw_level') else None
+    
+    return {
+        "owner_id": owner_id,
+        "owner_name": owner_name,
+        "server_created_at": server_created_at,
+        "description": description,
+        "member_count": member_count,
+        "icon_url": icon_url,
+        "banner_url": banner_url,
+        "verification_level": verification_level,
+        "premium_tier": premium_tier,
+        "premium_subscription_count": premium_subscription_count,
+        "features": features,
+        "vanity_url_code": vanity_url_code,
+        "preferred_locale": preferred_locale,
+        "nsfw_level": nsfw_level
+    }
+
+def register_guild_with_metadata(guild: discord.Guild, status: str):
+    """Extract metadata and register/update guild in database."""
+    metadata = extract_guild_metadata(guild)
+    astra_db_ops.register_or_update_guild(
+        guild.id, guild.name, status,
+        owner_id=metadata["owner_id"],
+        owner_name=metadata["owner_name"],
+        server_created_at=metadata["server_created_at"],
+        description=metadata["description"],
+        member_count=metadata["member_count"],
+        icon_url=metadata["icon_url"],
+        banner_url=metadata["banner_url"],
+        verification_level=metadata["verification_level"],
+        premium_tier=metadata["premium_tier"],
+        premium_subscription_count=metadata["premium_subscription_count"],
+        features=metadata["features"],
+        vanity_url_code=metadata["vanity_url_code"],
+        preferred_locale=metadata["preferred_locale"],
+        nsfw_level=metadata["nsfw_level"]
+    )
+
 @bot.event
 async def on_guild_join(guild: discord.Guild):
     logging.info(f"Joined new guild: {guild.name} ({guild.id})")
-    astra_db_ops.register_or_update_guild(guild.id, guild.name,"JOINED")
+    register_guild_with_metadata(guild, "JOINED")
+    # Track for first user heuristic
+    newly_joined_guilds.add(str(guild.id))
+
+@bot.event
+async def on_interaction(interaction: discord.Interaction):
+    """Handle interactions (slash commands) for first user heuristic."""
+    if interaction.type == discord.InteractionType.application_command and interaction.guild:
+        if str(interaction.guild_id) in newly_joined_guilds:
+            newly_joined_guilds.discard(str(interaction.guild_id))
+            astra_db_ops.update_guild_added_by(
+                str(interaction.guild_id),
+                str(interaction.user.id),
+                interaction.user.display_name
+            )
 
 @bot.event
 async def on_guild_remove(guild: discord.Guild):
     logging.info(f"Left guild: {guild.name} ({guild.id})")
-    astra_db_ops.register_or_update_guild(guild.id, guild.name,"LEFT")
+    # Remove from tracking if still there
+    newly_joined_guilds.discard(str(guild.id))
+    register_guild_with_metadata(guild, "LEFT")
 
 @bot.event
 async def on_reaction_add(reaction, user):

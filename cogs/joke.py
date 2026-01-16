@@ -31,7 +31,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # API functions
-def get_dad_joke():
+def get_dad_joke(guild_id: str = None, guild_name: str = None, user_id: str = None, 
+                 username: str = None, command_name: str = "joke"):
     """Get dad joke with priority: API (75%) -> Database (20%) -> AI (5%)"""
     import random
     from utils import astra_db_ops
@@ -83,13 +84,16 @@ def get_dad_joke():
                 
                 # Store AI-generated joke in database for future use
                 joke_id = astra_db_ops.save_truth_dare_question(
-                    guild_id="system",
-                    user_id="ai",
+                    guild_id=guild_id or "system",
+                    user_id=user_id or "ai",
                     question=joke,
                     question_type="dad_joke",
                     rating="PG",
                     source="llm",
-                    submitted_by="AI"
+                    submitted_by="AI",
+                    guild_name=guild_name,
+                    command_name=command_name,
+                    username=username
                 )
                 logging.debug(f"AI-generated dad joke: {joke}")
                 logging.debug(f"AI-generated joke_id: {joke_id}")
@@ -99,13 +103,16 @@ def get_dad_joke():
                 # Fallback to treating as single joke
                 joke = joke_response
                 joke_id = astra_db_ops.save_truth_dare_question(
-                    guild_id="system",
-                    user_id="ai",
+                    guild_id=guild_id or "system",
+                    user_id=user_id or "ai",
                     question=joke,
                     question_type="dad_joke",
                     rating="PG",
                     source="llm",
-                    submitted_by="AI"
+                    submitted_by="AI",
+                    guild_name=guild_name,
+                    command_name=command_name,
+                    username=username
                 )
                 logging.debug(f"AI-generated dad joke (fallback): {joke}")
                 logging.debug(f"AI-generated joke_id: {joke_id}")
@@ -230,6 +237,13 @@ class JokeCog(commands.Cog):
 
     async def handle_joke_request(self, source, category: str, is_slash: bool = False):
         """Shared handler for both prefix and slash joke commands."""
+        # Extract guild context
+        guild_id = str(source.guild.id) if hasattr(source, 'guild') and source.guild else (str(source.guild_id) if hasattr(source, 'guild_id') else None)
+        guild_name = source.guild.name if hasattr(source, 'guild') and source.guild else None
+        user_id = str(source.author.id) if hasattr(source, 'author') else (str(source.user.id) if hasattr(source, 'user') else None)
+        username = source.author.display_name if hasattr(source, 'author') else (source.user.display_name if hasattr(source, 'user') else None)
+        command_name = "joke"
+        
         content = None
         joke_id = None
         source_type = None
@@ -243,7 +257,7 @@ class JokeCog(commands.Cog):
                 # AI fallback
                 content = openai_utils.generate_openai_response(prompts.joke_insult_prompt)
         elif category == "dad":
-            result = get_dad_joke()
+            result = get_dad_joke(guild_id, guild_name, user_id, username, command_name)
             if result and result[0]:
                 content, source_type, joke_id, submitted_by = result
             else:
@@ -252,13 +266,16 @@ class JokeCog(commands.Cog):
                 if content:
                     from utils import astra_db_ops
                     joke_id = astra_db_ops.save_truth_dare_question(
-                        guild_id=str(source.guild.id) if hasattr(source, 'guild') else str(source.guild_id),
-                        user_id="ai",
+                        guild_id=guild_id or "system",
+                        user_id=user_id or "ai",
                         question=content,
                         question_type="dad_joke",
                         rating="PG",
                         source="llm",
-                        submitted_by="AI"
+                        submitted_by="AI",
+                        guild_name=guild_name,
+                        command_name=command_name,
+                        username=username
                     )
                     source_type = "llm"
                     submitted_by = "AI"
@@ -294,6 +311,10 @@ class JokeCog(commands.Cog):
         
         # Handle feedback collection for database content (including AI-generated)
         if joke_id:
+            # Update last_used for database jokes
+            from utils import astra_db_ops
+            astra_db_ops.update_question_last_used(joke_id)
+            
             # Create embed for database content
             embed = discord.Embed(
                 title="😄 Joke",
@@ -312,8 +333,6 @@ class JokeCog(commands.Cog):
             await message.add_reaction("👎")
             
             # Save message metadata for reaction tracking
-            from utils import astra_db_ops
-            guild_id = source.guild.id if hasattr(source, 'guild') else source.guild_id
             channel_id = source.channel.id if hasattr(source, 'channel') else source.channel_id
             astra_db_ops.add_message_metadata(joke_id, str(message.id), str(guild_id), str(channel_id))
         else:
@@ -395,7 +414,10 @@ class JokeCog(commands.Cog):
                 question_type="dad_joke",
                 rating=rating,
                 source="user",
-                submitted_by=interaction.user.display_name
+                submitted_by=interaction.user.display_name,
+                guild_name=interaction.guild.name if interaction.guild else None,
+                command_name="joke-submit",
+                username=interaction.user.display_name
             )
             
             if joke_id:

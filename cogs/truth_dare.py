@@ -108,7 +108,9 @@ class TruthDareCog(commands.Cog):
             logging.error(f"Error getting database question: {e}")
         return None, None, None
 
-    async def get_question(self, question_type: str, rating: str = "PG13"):
+    async def get_question(self, question_type: str, rating: str = "PG13", guild_id: str = None, 
+                          guild_name: str = None, user_id: str = None, username: str = None, 
+                          command_name: str = "tod"):
         """Get a question using the priority: API -> Database -> LLM with randomization."""
         # Add randomization: 75% API, 20% Database, 5% LLM
         rand = random.random()
@@ -132,7 +134,8 @@ class TruthDareCog(commands.Cog):
         question, creator_id = self.get_llm_question(question_type, rating)
         if question:
             # Store AI-generated question in database for future use
-            question_id = self.save_ai_question(question, question_type, rating)
+            question_id = self.save_ai_question(question, question_type, rating, guild_id, 
+                                                guild_name, user_id, username, command_name)
             return question, "llm", creator_id, question_type, rating, question_id, True
         
         # If all fail, try API as final fallback
@@ -166,18 +169,23 @@ class TruthDareCog(commands.Cog):
         """Get appropriate icon based on rating."""
         return "👨‍👩‍👧‍👦" if rating in ["PG", "PG13"] else "🔞"
 
-    def save_ai_question(self, question: str, question_type: str, rating: str):
+    def save_ai_question(self, question: str, question_type: str, rating: str, 
+                        guild_id: str = None, guild_name: str = None, user_id: str = None,
+                        username: str = None, command_name: str = "tod"):
         """Save AI-generated question to database and return question ID."""
         try:
             # Save to database and get the actual database ID
             question_id = astra_db_ops.save_truth_dare_question(
-                guild_id="global",  # AI questions are global
-                user_id="ai_system",
+                guild_id=guild_id or "global",
+                user_id=user_id or "ai_system",
                 question=question,
                 question_type=question_type,
                 rating=rating,
                 source="llm",
-                submitted_by="AI"
+                submitted_by="AI",
+                guild_name=guild_name,
+                command_name=command_name,
+                username=username
             )
             
             if question_id:
@@ -233,7 +241,11 @@ class TruthDareCog(commands.Cog):
                 action = random.choice(["truth", "dare", "wyr", "nhie", "paranoia"])
             
             # Get question
-            result = await self.get_question(action, category)
+            guild_id = str(interaction.guild_id) if interaction.guild_id else None
+            guild_name = interaction.guild.name if interaction.guild else None
+            user_id = str(interaction.user.id)
+            username = interaction.user.display_name
+            result = await self.get_question(action, category, guild_id, guild_name, user_id, username, "tod")
             if len(result) < 3:
                 await interaction.followup.send("❌ Sorry, I couldn't generate a question right now. Try again later!")
                 return
@@ -245,6 +257,10 @@ class TruthDareCog(commands.Cog):
             if not question:
                 await interaction.followup.send("❌ Sorry, I couldn't generate a question right now. Try again later!")
                 return
+            
+            # Update last_used for database questions
+            if question_id and source != "api":
+                astra_db_ops.update_question_last_used(question_id)
             
             # Create clean embed
             embed = discord.Embed(
@@ -307,7 +323,10 @@ class TruthDareCog(commands.Cog):
                 question_type=type,
                 rating=rating,
                 source="user",
-                submitted_by=interaction.user.display_name
+                submitted_by=interaction.user.display_name,
+                guild_name=interaction.guild.name if interaction.guild else None,
+                command_name="tod-submit",
+                username=interaction.user.display_name
             )
             
             if question_id:
@@ -383,7 +402,11 @@ class ActionButton(discord.ui.Button):
                 self.action = random.choice(["truth", "dare", "wyr", "nhie", "paranoia"])
             
             # Get question
-            result = await self.cog.get_question(self.action, self.current_rating)
+            guild_id = str(interaction.guild_id) if interaction.guild_id else None
+            guild_name = interaction.guild.name if interaction.guild else None
+            user_id = str(interaction.user.id)
+            username = interaction.user.display_name
+            result = await self.cog.get_question(self.action, self.current_rating, guild_id, guild_name, user_id, username, "tod")
             if len(result) < 3:
                 await interaction.followup.send("❌ Sorry, I couldn't generate a question right now. Try again later!")
                 return
@@ -395,6 +418,10 @@ class ActionButton(discord.ui.Button):
             if not question:
                 await interaction.followup.send("❌ Sorry, I couldn't generate a question right now. Try again later!")
                 return
+            
+            # Update last_used for database questions
+            if question_id and source != "api":
+                astra_db_ops.update_question_last_used(question_id)
             
             # Create clean embed
             embed = discord.Embed(
