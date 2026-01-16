@@ -404,6 +404,15 @@ async def global_throttle_check(ctx):
             ctx.author.display_name
         )
     
+    # Track daily command count for all prefix commands
+    if ctx.guild:
+        astra_db_ops.increment_daily_request_count(
+            ctx.author.id,
+            str(ctx.guild.id),
+            ctx.guild.name,
+            ctx.author.display_name
+        )
+    
     command_name = ctx.command.name if ctx.command else ""
     retry_after = throttle.check_command_throttle(ctx.author.id, command_name)
 
@@ -492,8 +501,9 @@ async def on_guild_join(guild: discord.Guild):
 
 @bot.event
 async def on_interaction(interaction: discord.Interaction):
-    """Handle interactions (slash commands) for first user heuristic."""
+    """Handle interactions (slash commands) for first user heuristic and daily command tracking."""
     if interaction.type == discord.InteractionType.application_command and interaction.guild:
+        # First user heuristic
         if str(interaction.guild_id) in newly_joined_guilds:
             newly_joined_guilds.discard(str(interaction.guild_id))
             astra_db_ops.update_guild_added_by(
@@ -501,6 +511,14 @@ async def on_interaction(interaction: discord.Interaction):
                 str(interaction.user.id),
                 interaction.user.display_name
             )
+        
+        # Track daily command count for all slash commands
+        astra_db_ops.increment_daily_request_count(
+            interaction.user.id,
+            str(interaction.guild_id),
+            interaction.guild.name if interaction.guild else None,
+            interaction.user.display_name
+        )
 
 @bot.event
 async def on_guild_remove(guild: discord.Guild):

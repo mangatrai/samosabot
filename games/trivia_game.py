@@ -343,6 +343,10 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
             color=discord.Color.green()
         )
 
+        # Extract guild and channel info for stats
+        guild_name = source.guild.name if isinstance(source, discord.ext.commands.Context) and source.guild else (bot.get_guild(guild_id).name if bot.get_guild(guild_id) else None)
+        channel_id = str(source.channel.id) if isinstance(source, discord.ext.commands.Context) and source.channel else (str(source.channel_id) if hasattr(source, 'channel_id') else None)
+
         # Add correct answers section
         if view.correct_users:
             correct_users_text = "\n".join([
@@ -355,7 +359,8 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
             for user_id in view.correct_users:
                 user_name = await get_user_display_name(bot, user_id, guild_id)
                 active_trivia_games[guild_id]["scores"][user_id] = active_trivia_games[guild_id]["scores"].get(user_id, 0) + 1
-                astra_db_ops.update_user_stats(user_id, user_name, correct_increment=1)
+                astra_db_ops.update_user_stats(user_id, user_name, correct_increment=1, 
+                                             guild_id=str(guild_id), guild_name=guild_name, channel_id=channel_id)
 
         # Add wrong answers section
         if view.wrong_users:
@@ -369,7 +374,8 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
             for user_id in view.wrong_users:
                 user_name = await get_user_display_name(bot, user_id, guild_id)
                 active_trivia_games[guild_id]["wrong_answers"][user_id] = active_trivia_games[guild_id]["wrong_answers"].get(user_id, 0) + 1
-                astra_db_ops.update_user_stats(user_id, user_name, wrong_increment=1)
+                astra_db_ops.update_user_stats(user_id, user_name, wrong_increment=1,
+                                             guild_id=str(guild_id), guild_name=guild_name, channel_id=channel_id)
 
         # Add no answer section if applicable
         if not view.answered_users:

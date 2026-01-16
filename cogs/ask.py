@@ -143,8 +143,14 @@ class AskCog(commands.Cog):
             else:
                 await interaction.send(embed=embed)
 
-            increment_daily_request_count(user_id)
-            insert_user_request(user_id, question, response)
+            # Extract guild and channel info
+            guild_id = str(interaction.guild_id) if isinstance(interaction, discord.Interaction) and interaction.guild_id else (str(interaction.guild.id) if interaction.guild else None)
+            guild_name = interaction.guild.name if isinstance(interaction, discord.Interaction) and interaction.guild else (interaction.guild.name if interaction.guild else None)
+            username = interaction.user.display_name if isinstance(interaction, discord.Interaction) else interaction.author.display_name
+            channel_id = str(interaction.channel_id) if isinstance(interaction, discord.Interaction) and interaction.channel_id else (str(interaction.channel.id) if interaction.channel else None)
+            
+            increment_daily_request_count(user_id)  # Keep old call for /ask limit (no guild info)
+            insert_user_request(user_id, question, response, guild_id, guild_name, username, channel_id)
         else:
             error_message = "Failed to generate a response."
             if isinstance(interaction, discord.Interaction):

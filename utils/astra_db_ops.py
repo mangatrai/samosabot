@@ -167,13 +167,21 @@ def save_qotd_schedules(schedule_data):
 
 
 # Update user stats in Astra DB
-def update_user_stats(user_id, username, correct_increment=0, wrong_increment=0):
+def update_user_stats(user_id, username, correct_increment=0, wrong_increment=0, 
+                     guild_id: str = None, guild_name: str = None, channel_id: str = None):
     """Update user statistics and leaderboard in AstraDB, incrementing by 1."""
     try:
         collection = get_trivia_leaderboard_collection()
         existing_doc = collection.find_one({"user_id": user_id})
 
         update_data = {"$set": {"username": username}}
+        if guild_id:
+            update_data["$set"]["guild_id"] = guild_id
+        if guild_name:
+            update_data["$set"]["guild_name"] = guild_name
+        if channel_id:
+            update_data["$set"]["channel_id"] = channel_id
+        
         increment_data = {}
 
         if existing_doc:
@@ -277,7 +285,8 @@ def clean_collection_data(collectionName):
         logging.error(f"Error cleaning trivia leaderboard: {e}")
 
 # New functions for user requests and daily counters
-def insert_user_request(user_id, question, response):
+def insert_user_request(user_id, question, response, guild_id: str = None, guild_name: str = None, 
+                       username: str = None, channel_id: str = None):
     """Insert a user request into the user_requests collection."""
     try:
         collection = get_user_requests_collection()
@@ -285,7 +294,11 @@ def insert_user_request(user_id, question, response):
             "user_id": str(user_id),
             "question": question,
             "response": response,
-            "timestamp": datetime.datetime.utcnow().isoformat()
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "guild_id": guild_id,
+            "guild_name": guild_name,
+            "username": username,
+            "channel_id": channel_id
         }
         collection.insert_one(document)
         logging.debug(f"User request inserted: User ID {user_id}")
@@ -303,24 +316,45 @@ def get_user_requests(user_id):
         return []
 
 def get_daily_request_count(user_id):
-    """Retrieve the daily request count for a user."""
+    """Retrieve the daily request count for a user (for /ask command limit)."""
     today = datetime.date.today().isoformat()
     try:
         collection = get_daily_counters_collection()
+        # For backward compatibility, check both old format (no guild_id) and new format
         result = collection.find_one({"user_id": str(user_id), "date": today})
-        return result.get("count", 0) if result else 0
+        if result:
+            return result.get("count", 0)
+        # If no result, sum all counts for this user today (in case multiple guilds)
+        results = collection.find({"user_id": str(user_id), "date": today})
+        total = sum(doc.get("count", 0) for doc in results)
+        return total
     except Exception as e:
         logging.error(f"Error retrieving daily request count: {e}")
         return 0
 
-def increment_daily_request_count(user_id):
+def increment_daily_request_count(user_id, guild_id: str = None, guild_name: str = None, username: str = None):
     """Increment the daily request count for a user."""
     today = datetime.date.today().isoformat()
     try:
         collection = get_daily_counters_collection()
+        # If guild_id provided, track per guild; otherwise track globally (for /ask backward compatibility)
+        if guild_id:
+            filter_query = {"user_id": str(user_id), "date": today, "guild_id": str(guild_id)}
+            update_query = {
+                "$inc": {"count": 1},
+                "$set": {
+                    "guild_name": guild_name,
+                    "username": username
+                }
+            }
+        else:
+            # Backward compatibility for /ask command
+            filter_query = {"user_id": str(user_id), "date": today}
+            update_query = {"$inc": {"count": 1}}
+        
         collection.find_one_and_update(
-            {"user_id": str(user_id), "date": today},
-            {"$inc": {"count": 1}},
+            filter_query,
+            update_query,
             upsert=True,
         )
         logging.debug(f"Daily request count incremented for User ID {user_id}")
