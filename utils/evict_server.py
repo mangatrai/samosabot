@@ -14,7 +14,7 @@ Example:
 import sys
 import os
 import asyncio
-import discord
+import aiohttp
 from dotenv import load_dotenv
 import logging
 
@@ -33,12 +33,90 @@ logging.basicConfig(
 )
 
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-CONNECTION_TIMEOUT = 30  # seconds
-READY_TIMEOUT = 30  # seconds
+DISCORD_API_BASE = "https://discord.com/api/v10"
+REQUEST_TIMEOUT = 10  # seconds
+
+async def fetch_guild_info(session: aiohttp.ClientSession, guild_id: str):
+    """
+    Fetch guild information from Discord API.
+    
+    Args:
+        session: aiohttp session
+        guild_id: The Discord guild ID
+        
+    Returns:
+        Tuple of (success: bool, guild_name: str)
+    """
+    url = f"{DISCORD_API_BASE}/guilds/{guild_id}"
+    headers = {
+        "Authorization": f"Bot {TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)) as response:
+            if response.status == 200:
+                data = await response.json()
+                return True, data.get("name", "Unknown")
+            elif response.status == 404:
+                logging.warning(f"Guild {guild_id} not found (404). Guild may not exist or bot not in server.")
+                return False, "Unknown (Not Found)"
+            elif response.status == 403:
+                logging.warning(f"Bot does not have access to guild {guild_id} (403). Bot may have been removed.")
+                return False, "Unknown (Forbidden)"
+            else:
+                logging.error(f"Unexpected status code {response.status} when fetching guild {guild_id}")
+                return False, "Unknown (Error)"
+    except asyncio.TimeoutError:
+        logging.error(f"Timeout fetching guild {guild_id}")
+        return False, "Unknown (Timeout)"
+    except Exception as e:
+        logging.error(f"Error fetching guild info: {e}")
+        return False, "Unknown (Error)"
+
+async def leave_guild(session: aiohttp.ClientSession, guild_id: str) -> bool:
+    """
+    Leave a guild using Discord API.
+    
+    Args:
+        session: aiohttp session
+        guild_id: The Discord guild ID to leave
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    url = f"{DISCORD_API_BASE}/users/@me/guilds/{guild_id}"
+    headers = {
+        "Authorization": f"Bot {TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    try:
+        async with session.delete(url, headers=headers, timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)) as response:
+            if response.status == 204:
+                logging.info(f"Successfully left guild {guild_id}")
+                return True
+            elif response.status == 404:
+                logging.warning(f"Guild {guild_id} not found when trying to leave (404)")
+                return False
+            elif response.status == 403:
+                logging.warning(f"Bot does not have permission to leave guild {guild_id} (403)")
+                return False
+            else:
+                error_text = await response.text()
+                logging.error(f"Unexpected status code {response.status} when leaving guild {guild_id}: {error_text}")
+                return False
+    except asyncio.TimeoutError:
+        logging.error(f"Timeout leaving guild {guild_id}")
+        return False
+    except Exception as e:
+        logging.error(f"Error leaving guild: {e}")
+        return False
 
 async def evict_server(guild_id: str):
     """
     Forcefully remove the bot from a Discord server and update database.
+    Uses HTTP API directly instead of full bot connection to avoid hanging.
     
     Args:
         guild_id: The Discord guild ID to evict the bot from
@@ -47,121 +125,54 @@ async def evict_server(guild_id: str):
         logging.error("DISCORD_BOT_TOKEN not found in environment variables")
         return False
     
-    # Set up minimal intents needed to leave guild
-    intents = discord.Intents.default()
-    intents.guilds = True
-    
-    bot = discord.Client(intents=intents)
     guild_name = None
     
-    try:
-        # Connect to Discord with timeout
-        logging.info("Connecting to Discord...")
-        await bot.login(TOKEN)
+    async with aiohttp.ClientSession() as session:
+        # First, try to fetch guild info to get the name and validate existence
+        logging.info(f"Fetching guild information for {guild_id}...")
+        success, fetched_name = await fetch_guild_info(session, guild_id)
         
-        # Connect with timeout
-        try:
-            await asyncio.wait_for(bot.connect(), timeout=CONNECTION_TIMEOUT)
-        except asyncio.TimeoutError:
-            logging.error(f"Connection to Discord timed out after {CONNECTION_TIMEOUT} seconds")
-            return False
+        if success:
+            guild_name = fetched_name
+            logging.info(f"Found guild: {guild_name} ({guild_id})")
+            
+            # Try to leave the guild
+            logging.info(f"Attempting to leave guild {guild_name} ({guild_id})...")
+            left_successfully = await leave_guild(session, guild_id)
+            
+            if left_successfully:
+                logging.info(f"Successfully left guild {guild_name} ({guild_id})")
+            else:
+                logging.warning(f"Could not leave guild {guild_id}, but will update database anyway")
+        else:
+            # Guild not found or bot not in it, but we'll still update database
+            logging.info(f"Guild {guild_id} not accessible, but will update database status")
+            guild_name = fetched_name
         
-        # Wait for bot to be ready with timeout
-        logging.info("Waiting for bot to be ready...")
-        try:
-            await asyncio.wait_for(bot.wait_until_ready(), timeout=READY_TIMEOUT)
-        except asyncio.TimeoutError:
-            logging.error(f"Bot ready state timed out after {READY_TIMEOUT} seconds")
-            return False
-        
-        logging.info(f"Bot connected. Bot user: {bot.user}")
-        
-        # First try to get from cache (fast)
-        guild = bot.get_guild(int(guild_id))
-        
-        # If not in cache, fetch from API (validates existence and bot membership)
-        if not guild:
-            logging.info(f"Guild {guild_id} not in cache, fetching from API...")
-            try:
-                guild = await asyncio.wait_for(bot.fetch_guild(int(guild_id)), timeout=10)
-            except asyncio.TimeoutError:
-                logging.error(f"Fetching guild {guild_id} timed out")
-                return False
-            except discord.errors.NotFound:
-                logging.warning(f"Guild {guild_id} not found. Bot may not be in this server or guild doesn't exist.")
-                # Update database anyway to mark as EVICTED
-                logging.info(f"Updating database status to EVICTED for guild {guild_id}...")
-                astra_db_ops.register_or_update_guild(
-                    guild_id=int(guild_id),
-                    guild_name="Unknown (Not Found)",
-                    status="EVICTED"
-                )
-                logging.info(f"Database updated. Guild {guild_id} marked as EVICTED (not found)")
-                return True
-            except discord.errors.Forbidden:
-                logging.warning(f"Bot does not have access to guild {guild_id}. Bot may have been removed.")
-                # Update database anyway to mark as EVICTED
-                logging.info(f"Updating database status to EVICTED for guild {guild_id}...")
-                astra_db_ops.register_or_update_guild(
-                    guild_id=int(guild_id),
-                    guild_name="Unknown (Forbidden)",
-                    status="EVICTED"
-                )
-                logging.info(f"Database updated. Guild {guild_id} marked as EVICTED (forbidden)")
-                return True
-        
-        guild_name = guild.name
-        logging.info(f"Found guild: {guild_name} ({guild_id})")
-        
-        # Leave the guild forcefully
-        logging.info(f"Leaving guild {guild_name} ({guild_id})...")
-        try:
-            await asyncio.wait_for(guild.leave(), timeout=10)
-        except asyncio.TimeoutError:
-            logging.error(f"Leaving guild {guild_id} timed out")
-            return False
-        
-        logging.info(f"Successfully left guild {guild_name} ({guild_id})")
-        
-        # Update database with EVICTED status
+        # Update database with EVICTED status regardless of leave result
         logging.info(f"Updating database status to EVICTED for guild {guild_id}...")
+        
+        # Try to get the actual guild name from database if we don't have it
+        if not guild_name or guild_name.startswith("Unknown"):
+            try:
+                from utils.astra_db_ops import get_registered_servers_collection
+                collection = get_registered_servers_collection()
+                if collection:
+                    existing = collection.find_one({"guild_id": guild_id})
+                    if existing and existing.get("guild_name"):
+                        guild_name = existing.get("guild_name")
+                        logging.info(f"Retrieved guild name from database: {guild_name}")
+            except Exception as e:
+                logging.warning(f"Could not retrieve guild name from database: {e}")
+        
         astra_db_ops.register_or_update_guild(
             guild_id=int(guild_id),
-            guild_name=guild_name,
+            guild_name=guild_name or "Unknown",
             status="EVICTED"
         )
         logging.info(f"Database updated successfully. Guild {guild_id} status set to EVICTED")
         
         return True
-        
-    except discord.errors.Forbidden:
-        logging.error(f"Bot does not have permission to leave guild {guild_id}")
-        # Still update database
-        astra_db_ops.register_or_update_guild(
-            guild_id=int(guild_id),
-            guild_name=guild_name or "Unknown (Forbidden)",
-            status="EVICTED"
-        )
-        return False
-    except discord.errors.NotFound:
-        logging.error(f"Guild {guild_id} not found or bot is not in this server")
-        # Still update database
-        astra_db_ops.register_or_update_guild(
-            guild_id=int(guild_id),
-            guild_name=guild_name or "Unknown (Not Found)",
-            status="EVICTED"
-        )
-        return False
-    except Exception as e:
-        logging.error(f"Error evicting server: {e}", exc_info=True)
-        return False
-    finally:
-        # Close the bot connection
-        logging.info("Closing bot connection...")
-        try:
-            await asyncio.wait_for(bot.close(), timeout=5)
-        except Exception as e:
-            logging.warning(f"Error closing bot connection: {e}")
 
 def validate_guild_id(guild_id: str) -> bool:
     """
