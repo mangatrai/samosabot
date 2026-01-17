@@ -807,20 +807,26 @@ def get_random_truth_dare_question(question_type: str, rating: str = "PG"):
         if collection is None:
             return None
         
-        # Find all questions of the specified type and rating with positive feedback >= negative feedback
-        # Using $expr for field comparison as documented in AstraDB filter operators
+        # Find approved questions of the specified type and rating
+        # Note: AstraDB doesn't support $expr for field comparisons in filters,
+        # so we filter in Python to keep only questions where positive_feedback >= negative_feedback
         filter_query = {
             "type": question_type, 
             "rating": rating, 
-            "approved": True,
-            "$expr": {"$gte": ["$positive_feedback", "$negative_feedback"]}
+            "approved": True
         }
-        all_questions = list(collection.find(filter_query))
+        all_questions = list(collection.find(filter_query, limit=20))
         
-        if all_questions:
+        # Filter in Python: keep only questions where positive_feedback >= negative_feedback
+        filtered_questions = [
+            q for q in all_questions
+            if q.get("positive_feedback", 0) >= q.get("negative_feedback", 0)
+        ]
+        
+        if filtered_questions:
             # Select a random question
             import random
-            selected_question = random.choice(all_questions)
+            selected_question = random.choice(filtered_questions)
             
             # Update usage count
             collection.update_one(
