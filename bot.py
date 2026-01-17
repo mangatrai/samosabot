@@ -70,7 +70,7 @@ intents.members = True  # Enable member intents
 intents.messages = True
 intents.guilds = True
 intents.message_content = True  # Enable message content intent
-bot = commands.Bot(command_prefix=PREFIX, intents=intents)
+bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)  # Disable default help, using custom help
 tree = bot.tree
 
 # First user heuristic tracking
