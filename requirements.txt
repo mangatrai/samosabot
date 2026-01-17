@@ -4,3 +4,4 @@ python-dotenv
 flask
 astrapy
 requests
+Pillow
