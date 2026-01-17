@@ -501,8 +501,36 @@ async def on_guild_join(guild: discord.Guild):
 
 @bot.event
 async def on_interaction(interaction: discord.Interaction):
-    """Handle interactions (slash commands) for first user heuristic and daily command tracking."""
+    """Handle interactions (slash commands) for throttling, first user heuristic, and daily command tracking."""
     if interaction.type == discord.InteractionType.application_command and interaction.guild:
+        # Extract command name for throttling
+        # For slash commands, command name is in interaction.data["name"]
+        command_name = ""
+        if hasattr(interaction, "data") and isinstance(interaction.data, dict):
+            command_name = interaction.data.get("name", "")
+        elif hasattr(interaction, "command") and interaction.command:
+            command_name = interaction.command.name
+        
+        # Check throttling (same logic as prefix commands)
+        retry_after = throttle.check_command_throttle(interaction.user.id, command_name)
+        
+        if retry_after > 0:
+            # User is on cooldown - respond with ephemeral message
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(
+                        f"⏳ Slow down {interaction.user.mention}! Try again in {math.ceil(retry_after)} seconds.",
+                        ephemeral=True
+                    )
+                else:
+                    await interaction.followup.send(
+                        f"⏳ Slow down {interaction.user.mention}! Try again in {math.ceil(retry_after)} seconds.",
+                        ephemeral=True
+                    )
+            except Exception as e:
+                logging.error(f"Error sending cooldown message: {e}")
+            return  # Don't process the command
+        
         # First user heuristic
         if str(interaction.guild_id) in newly_joined_guilds:
             newly_joined_guilds.discard(str(interaction.guild_id))
@@ -548,19 +576,11 @@ async def on_reaction_add(reaction, user):
 @bot.event
 async def on_command_error(ctx, error):
     """
-    Global error handler for command invocation errors.
-
-    This event is triggered when a command raises an error during execution. It checks if the error is of type 
-    CommandOnCooldown and, if so, sends a custom cooldown message with a live countdown timer indicating when the user 
-    can try again. For other types of errors, it logs the error and notifies the user with a generic error message.
-
-    Args:
-        ctx (commands.Context): The context in which the command was invoked.
-        error (Exception): The exception raised by the command.
+    Global error handler for prefix command errors.
+    Points users to help command for guidance.
     """
     if isinstance(error, commands.CommandNotFound):
-        # Silently ignore unknown commands to prevent spam
-        return
+        await ctx.send(f"❌ Unknown command. Use `{ctx.prefix}help` to see all commands.")
     elif isinstance(error, commands.CommandOnCooldown):
         # Round up the retry time
         retry = math.ceil(error.retry_after)
@@ -577,10 +597,38 @@ async def on_command_error(ctx, error):
             await cooldown_message.delete()
         except Exception:
             pass
+    elif isinstance(error, commands.MissingRequiredArgument):
+        command_name = ctx.command.name if ctx.command else "command"
+        await ctx.send(f"❌ Missing required arguments. Use `{ctx.prefix}help {command_name}` for usage.")
+    elif isinstance(error, (commands.BadArgument, commands.TooManyArguments)):
+        command_name = ctx.command.name if ctx.command else "command"
+        await ctx.send(f"❌ Invalid arguments. Use `{ctx.prefix}help {command_name}` for usage.")
     else:
         # Log other errors for debugging purposes
         logging.error(f"Command error: {error}")
-        await ctx.send(f"An error occurred: {error}")
+        await ctx.send("❌ An error occurred. Try again later or use `!help` for available commands.")
+
+@tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    """
+    Global error handler for slash command errors.
+    Provides friendly error messages and points to help.
+    """
+    logging.error(f"Slash command error: {error}")
+    
+    try:
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "❌ Something went wrong. Try again later or use `/help` for available commands.",
+                ephemeral=True
+            )
+        else:
+            await interaction.followup.send(
+                "❌ Something went wrong. Try again later or use `/help` for available commands.",
+                ephemeral=True
+            )
+    except Exception as e:
+        logging.error(f"Error sending error message: {e}")
 
 # Wrap bot.run in a try-except block to handle unexpected crashes
 try:
