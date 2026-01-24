@@ -342,10 +342,15 @@ async def on_ready():
     logging.info(f'Logged in as {bot.user}')
 
     for ext in EXTENSIONS:
+        if not ext.strip():  # Skip empty extensions
+            continue
         try:
-            await bot.load_extension(ext)
+            await bot.load_extension(ext.strip())
+            logging.info(f"[SUCCESS] Loaded extension: {ext.strip()}")
         except commands.ExtensionAlreadyLoaded:
-            logging.error(f"Extension '{ext}' is already loaded. Skipping.")
+            logging.warning(f"Extension '{ext.strip()}' is already loaded. Skipping.")
+        except Exception as e:
+            logging.error(f"[ERROR] Failed to load extension '{ext.strip()}': {e}", exc_info=True)
 
     # Load stored QOTD schedules and bot status channels from DB
     qotd_channels = load_qotd_schedules()
@@ -362,29 +367,43 @@ async def on_ready():
     await asyncio.sleep(2)
     logging.info("Waiting for cogs to register commands...")
 
+    # Log all registered commands for debugging
+    all_commands = tree.get_commands()
+    command_names = [cmd.name for cmd in all_commands]
+    logging.info(f"[DEBUG] Registered commands ({len(command_names)}): {', '.join(sorted(command_names))}")
+
     # Sync slash commands globally with retry
+    # NOTE: We use global-only sync (not per-guild) for the following reasons:
+    # 1. Discord's recommended approach for production bots
+    # 2. Simpler, more reliable - single sync point reduces failure modes
+    # 3. Avoids conflicts where guild sync can override global commands
+    # 4. Better rate limit handling - fewer API calls, global sync has higher limits
+    # 5. Automatic propagation - new guilds get commands automatically (after ~1 hour propagation)
+    # Trade-off: Commands may take up to 1 hour to appear in existing guilds after bot restart,
+    # but this is acceptable for production stability and reliability.
     for attempt in range(3):
         try:
-            await tree.sync(guild=None)
-            logging.info(f"[SUCCESS] Synced {len(tree.get_commands())} slash commands globally")
+            synced = await tree.sync(guild=None)
+            all_commands = tree.get_commands()
+            command_names = [cmd.name for cmd in all_commands]
+            logging.info(f"[SUCCESS] Synced {len(synced)} commands to Discord (registered: {len(command_names)})")
+            logging.info(f"[DEBUG] Synced command names: {[cmd.name for cmd in synced]}")
+            if len(synced) != len(command_names):
+                missing = set(command_names) - {cmd.name for cmd in synced}
+                logging.warning(f"[WARNING] {len(missing)} commands registered but not synced: {missing}")
             break
         except Exception as e:
-            logging.error(f"[ERROR] Failed to sync commands globally (attempt {attempt + 1}/3): {e}")
+            logging.error(f"[ERROR] Failed to sync commands globally (attempt {attempt + 1}/3): {e}", exc_info=True)
             if attempt < 2:
                 await asyncio.sleep(2)
 
-    # Sync slash commands for each guild with retry
+    # Register existing guilds with metadata (separate from command sync)
     for guild in bot.guilds:
-        for attempt in range(2):
-            try:
-                await tree.sync(guild=guild)
-                register_guild_with_metadata(guild, "JOINED")
-                logging.info(f"[SUCCESS] Synced slash commands for {guild.name} ({guild.id})")
-                break
-            except Exception as e:
-                logging.error(f"[ERROR] Failed to sync commands for {guild.name} ({guild.id}) (attempt {attempt + 1}/2): {e}")
-                if attempt < 1:
-                    await asyncio.sleep(1)
+        try:
+            register_guild_with_metadata(guild, "JOINED")
+            logging.info(f"[SUCCESS] Registered guild metadata for {guild.name} ({guild.id})")
+        except Exception as e:
+            logging.error(f"[ERROR] Failed to register guild metadata for {guild.name} ({guild.id}): {e}")
 
 @bot.check
 async def global_throttle_check(ctx):

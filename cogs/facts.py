@@ -393,7 +393,7 @@ class FactsCog(commands.Cog):
                         await ctx.send(embed=embed)
                 else:
                     await ctx.send("❌ Sorry, I couldn't get a fact right now. Try again later!")
-                    
+                
             except Exception as e:
                 logging.error(f"Error in prefix_fact: {e}")
                 await ctx.send("❌ An error occurred while getting your fact.")

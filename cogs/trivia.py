@@ -66,13 +66,6 @@ class TriviaCog(commands.Cog):
         )
 
     @app_commands.command(name="trivia", description="Start or stop a trivia game")
-    async def slash_trivia(self, interaction: discord.Interaction, action: str, category: str = None, speed: str = "slow"):
-        """
-        Start, stop, or view trivia game leaderboard (slash command).
-        
-        Uses interactive buttons for answering questions.
-        Tracks scores and maintains leaderboards.
-        """
     @app_commands.describe(
         action="Choose to start or stop a trivia game",
         category="Select a trivia category (required for start, optional for stop)",
@@ -108,6 +101,12 @@ class TriviaCog(commands.Cog):
         app_commands.Choice(name="Holidays & Traditions", value="Holidays")
     ])
     async def slash_trivia(self, interaction: discord.Interaction, action: str, category: str = None, speed: str = "slow"):
+        """
+        Start, stop, or view trivia game leaderboard (slash command).
+        
+        Uses interactive buttons for answering questions.
+        Tracks scores and maintains leaderboards.
+        """
         guild_id = interaction.guild_id
 
         if action == "start":

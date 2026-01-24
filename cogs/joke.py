@@ -321,7 +321,7 @@ class JokeCog(commands.Cog):
                 description=format_joke_content(content),
                 color=discord.Color.orange()
             )
-                     
+            
             # Send message with embed
             if is_slash:
                 message = await source.followup.send(embed=embed)
