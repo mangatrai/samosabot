@@ -15,6 +15,7 @@ import sys
 import os
 import asyncio
 import aiohttp
+import requests
 from dotenv import load_dotenv
 import logging
 
@@ -74,12 +75,11 @@ async def fetch_guild_info(session: aiohttp.ClientSession, guild_id: str):
         logging.error(f"Error fetching guild info: {e}")
         return False, "Unknown (Error)"
 
-async def leave_guild(session: aiohttp.ClientSession, guild_id: str) -> bool:
+def leave_guild_sync(guild_id: str) -> bool:
     """
-    Leave a guild using Discord API.
+    Leave a guild using Discord API (synchronous version using requests library).
     
     Args:
-        session: aiohttp session
         guild_id: The Discord guild ID to leave
         
     Returns:
@@ -87,26 +87,27 @@ async def leave_guild(session: aiohttp.ClientSession, guild_id: str) -> bool:
     """
     url = f"{DISCORD_API_BASE}/users/@me/guilds/{guild_id}"
     headers = {
-        "Authorization": f"Bot {TOKEN}",
-        "Content-Type": "application/json"
+        "Authorization": f"Bot {TOKEN}"
     }
     
     try:
-        async with session.delete(url, headers=headers, timeout=aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)) as response:
-            if response.status == 204:
-                logging.info(f"Successfully left guild {guild_id}")
-                return True
-            elif response.status == 404:
-                logging.warning(f"Guild {guild_id} not found when trying to leave (404)")
-                return False
-            elif response.status == 403:
-                logging.warning(f"Bot does not have permission to leave guild {guild_id} (403)")
-                return False
-            else:
-                error_text = await response.text()
-                logging.error(f"Unexpected status code {response.status} when leaving guild {guild_id}: {error_text}")
-                return False
-    except asyncio.TimeoutError:
+        # Discord API DELETE /users/@me/guilds/{guild.id} requires no body
+        # Using requests library which doesn't auto-add Content-Type for DELETE without body
+        response = requests.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        
+        if response.status_code == 204:
+            logging.info(f"Successfully left guild {guild_id}")
+            return True
+        elif response.status_code == 404:
+            logging.warning(f"Guild {guild_id} not found when trying to leave (404)")
+            return False
+        elif response.status_code == 403:
+            logging.warning(f"Bot does not have permission to leave guild {guild_id} (403)")
+            return False
+        else:
+            logging.error(f"Unexpected status code {response.status_code} when leaving guild {guild_id}: {response.text}")
+            return False
+    except requests.exceptions.Timeout:
         logging.error(f"Timeout leaving guild {guild_id}")
         return False
     except Exception as e:
@@ -127,7 +128,8 @@ async def evict_server(guild_id: str):
     
     guild_name = None
     
-    async with aiohttp.ClientSession() as session:
+    # Configure session to skip Content-Type auto-header for DELETE requests
+    async with aiohttp.ClientSession(skip_auto_headers=['Content-Type']) as session:
         # First, try to fetch guild info to get the name and validate existence
         logging.info(f"Fetching guild information for {guild_id}...")
         success, fetched_name = await fetch_guild_info(session, guild_id)
@@ -138,7 +140,7 @@ async def evict_server(guild_id: str):
             
             # Try to leave the guild
             logging.info(f"Attempting to leave guild {guild_name} ({guild_id})...")
-            left_successfully = await leave_guild(session, guild_id)
+            left_successfully = leave_guild_sync(guild_id)
             
             if left_successfully:
                 logging.info(f"Successfully left guild {guild_name} ({guild_id})")
