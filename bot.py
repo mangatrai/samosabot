@@ -131,7 +131,7 @@ async def scheduled_qotd():
     for guild_id, channel_id in qotd_channels.items():
         channel = bot.get_channel(channel_id)
         if channel:
-            content = openai_utils.generate_openai_response(qotd_prompt)
+            content = await openai_utils.generate_openai_response(qotd_prompt)
             await channel.send(f"🌟 **Question of the Day:** {content}")
         else:
             logging.warning(f"QOTD channel {channel_id} not found for server {guild_id}")
@@ -237,7 +237,7 @@ async def start_qotd(ctx):
 async def qotd(ctx):
     """Get a random AI-generated Question of the Day."""
     async with ctx.typing():
-        content = openai_utils.generate_openai_response(qotd_prompt)
+        content = await openai_utils.generate_openai_response(qotd_prompt)
         await ctx.send(f"🌟 **Question of the Day:** {content}")
 
 
@@ -250,7 +250,7 @@ async def pickup(ctx):
         content = get_rizzapi_pickup()
         if content is None:
             # Fallback to AI
-            content = openai_utils.generate_openai_response(pickup_prompt)
+            content = await openai_utils.generate_openai_response(pickup_prompt)
         await ctx.send(f"💘 **Pick-up Line:** {content}")
 
 #Compliment Machine
@@ -260,7 +260,7 @@ async def compliment(ctx, user: discord.Member = None):
     async with ctx.typing():
         target = user.display_name if user else ctx.author.display_name
         prompt = f"Generate a wholesome and genuine compliment for {target}."
-        content = openai_utils.generate_openai_response(prompt)
+        content = await openai_utils.generate_openai_response(prompt)
         await ctx.send(f"💖 {content}")
 
 #AI-Powered Fortune Teller
@@ -269,7 +269,7 @@ async def fortune(ctx):
     """Give a user their AI-powered fortune."""
     async with ctx.typing():
         prompt = "Generate a fun, unpredictable, and mystical fortune-telling message. Keep it engaging and lighthearted."
-        content = openai_utils.generate_openai_response(prompt)
+        content = await openai_utils.generate_openai_response(prompt)
         await ctx.send(f"🔮 **Your fortune:** {content}")
 
 # Prefix command to ListServers who have bot registered
@@ -318,7 +318,7 @@ async def slash_samosa(interaction: discord.Interaction, action: str, channel: d
 async def slash_qotd(interaction: discord.Interaction):
     try:
         await interaction.response.defer()  # Acknowledge the interaction immediately
-        content = openai_utils.generate_openai_response(qotd_prompt)
+        content = await openai_utils.generate_openai_response(qotd_prompt)
         await interaction.followup.send(f"🌟 **Question of the Day:** {content}")
     except Exception as e:
         logging.error(f"Error in slash_qotd: {e}")
@@ -332,7 +332,7 @@ async def slash_pickup(interaction: discord.Interaction):
     content = get_rizzapi_pickup()
     if content is None:
         # Fallback to AI
-        content = openai_utils.generate_openai_response(pickup_prompt)
+        content = await openai_utils.generate_openai_response(pickup_prompt)
     await interaction.followup.send(f"💘 **Pick-up Line:** {content}")
 
 @bot.event

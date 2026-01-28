@@ -64,7 +64,7 @@ class TruthDareCog(commands.Cog):
             logging.error(f"Error getting API question: {e}")
         return None, None
 
-    def get_llm_question(self, question_type: str, rating: str = "PG13"):
+    async def get_llm_question(self, question_type: str, rating: str = "PG13"):
         """Get a question from LLM using existing prompts."""
         try:
             # Map to prompt variables
@@ -88,7 +88,7 @@ class TruthDareCog(commands.Cog):
             
             prompt = prompt_map.get((question_type, rating))
             if prompt:
-                question = openai_utils.generate_openai_response(prompt)
+                question = await openai_utils.generate_openai_response(prompt)
                 logging.debug(f"LLM {question_type} response: {question}")
                 return question, "AI"
         except Exception as e:
@@ -131,7 +131,7 @@ class TruthDareCog(commands.Cog):
                 return question, "database", submitted_by, question_type, rating, question_id, is_ai_question
         
         # Fallback to LLM (5% chance or if others fail)
-        question, creator_id = self.get_llm_question(question_type, rating)
+        question, creator_id = await self.get_llm_question(question_type, rating)
         if question:
             # Store AI-generated question in database for future use
             question_id = self.save_ai_question(question, question_type, rating, guild_id, 

@@ -433,7 +433,7 @@ class VerificationCog(commands.Cog):
             logging.debug(f"[DEBUG] Created verification channel: {channel.name} (ID: {channel.id})")
 
             # Generate verification questions using OpenAI
-            questions = openai_utils.generate_openai_response("Generate 3 verification questions", intent="verification")
+            questions = await openai_utils.generate_openai_response("Generate 3 verification questions", intent="verification")
             logging.debug(f"[DEBUG] Generated verification questions for {member.name}")
 
             # Store verification state

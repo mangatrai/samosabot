@@ -39,7 +39,7 @@ Example Usage:
 import json
 import logging
 import os
-from openai import OpenAI
+from openai import AsyncOpenAI
 from dotenv import load_dotenv
 from configs import prompts  # Ensure this module contains your ask_samosa_instruction_prompt
 
@@ -52,10 +52,10 @@ TEXT_GENERATION_MODEL = os.getenv("TEXT_GENERATION_MODEL", "gpt-4o")
 INTENT_CHECK_MODEL = os.getenv("INTENT_CHECK_MODEL", "gpt-3.5-turbo")
 VERIFICATION_MODEL = os.getenv("VERIFICATION_MODEL", "gpt-3.5-turbo")
 
-# Initialize OpenAI client
-client = OpenAI(api_key=OPENAI_API_KEY)
+# Initialize OpenAI async client
+client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
-def generate_openai_response(prompt, intent="text", model=None):
+async def generate_openai_response(prompt, intent="text", model=None):
     """
     Generates a response from OpenAI based on the provided intent.
     
@@ -89,7 +89,7 @@ def generate_openai_response(prompt, intent="text", model=None):
         if intent == "intent":
             # Perform intent and safety check using the instruction prompt from prompts module.
             instruction = prompts.ask_samosa_instruction_prompt
-            response = client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": instruction},
@@ -111,7 +111,7 @@ def generate_openai_response(prompt, intent="text", model=None):
 
         elif intent == "image":
             enhanced_prompt = f"{prompt}. Create a visually striking, highly detailed, and creatively composed image with vibrant colors and dynamic elements."
-            response = client.images.generate(
+            response = await client.images.generate(
                 model=model,
                 prompt=enhanced_prompt,
                 n=1,
@@ -124,7 +124,7 @@ def generate_openai_response(prompt, intent="text", model=None):
         elif intent == "verification":
             # Use the verification prompt from prompts module
             logging.debug(f"About to Generate verification questions from OpenAI. Verification Prompt: {prompts.verification_prompt}")
-            response = client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": prompts.verification_prompt},
@@ -154,7 +154,7 @@ def generate_openai_response(prompt, intent="text", model=None):
                 ]
 
         else:  # Default to text generation.
-            response = client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model=model,
                 messages=[
                     {"role": "system", "content": (

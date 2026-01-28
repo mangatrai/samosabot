@@ -50,7 +50,7 @@ class RoastCog(commands.Cog):
         async with ctx.typing():
             target = user.display_name if user else ctx.author.display_name
             prompt = prompts.roast_prompt.format(target=target)
-            content = openai_utils.generate_openai_response(prompt)
+            content = await openai_utils.generate_openai_response(prompt)
             await ctx.send(f"🔥 {content}")
 
     @app_commands.command(name="roast", description="Generate a witty roast for a user.")
@@ -69,7 +69,7 @@ class RoastCog(commands.Cog):
         await interaction.response.defer()
         target = user.display_name if user else interaction.user.display_name
         prompt = prompts.roast_prompt.format(target=target)
-        content = openai_utils.generate_openai_response(prompt)
+        content = await openai_utils.generate_openai_response(prompt)
         await interaction.followup.send(f"🔥 {content}")
 
 async def setup(bot: commands.Bot):

@@ -31,7 +31,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # API functions
-def get_dad_joke(guild_id: str = None, guild_name: str = None, user_id: str = None, 
+async def get_dad_joke(guild_id: str = None, guild_name: str = None, user_id: str = None, 
                  username: str = None, command_name: str = "joke"):
     """Get dad joke with priority: API (75%) -> Database (20%) -> AI (5%)"""
     import random
@@ -66,7 +66,7 @@ def get_dad_joke(guild_id: str = None, guild_name: str = None, user_id: str = No
     
     # Fallback to AI (5% chance or if others fail)
     try:
-        joke_response = openai_utils.generate_openai_response(prompts.joke_dad_prompt)
+        joke_response = await openai_utils.generate_openai_response(prompts.joke_dad_prompt)
         if joke_response:
             # Parse JSON response and format as two-step joke
             try:
@@ -255,14 +255,14 @@ class JokeCog(commands.Cog):
                 content, source_type, joke_id, submitted_by = result
             else:
                 # AI fallback
-                content = openai_utils.generate_openai_response(prompts.joke_insult_prompt)
+                content = await openai_utils.generate_openai_response(prompts.joke_insult_prompt)
         elif category == "dad":
-            result = get_dad_joke(guild_id, guild_name, user_id, username, command_name)
+            result = await get_dad_joke(guild_id, guild_name, user_id, username, command_name)
             if result and result[0]:
                 content, source_type, joke_id, submitted_by = result
             else:
                 # AI fallback - store in database for feedback
-                content = openai_utils.generate_openai_response(prompts.joke_dad_prompt)
+                content = await openai_utils.generate_openai_response(prompts.joke_dad_prompt)
                 if content:
                     from utils import astra_db_ops
                     joke_id = astra_db_ops.save_truth_dare_question(
@@ -285,21 +285,21 @@ class JokeCog(commands.Cog):
                 content, source_type, joke_id, submitted_by = result
             else:
                 # AI fallback
-                content = openai_utils.generate_openai_response(prompts.joke_gen_prompt)
+                content = await openai_utils.generate_openai_response(prompts.joke_gen_prompt)
         elif category == "spooky":
             result = get_spooky_joke()
             if result and result[0]:
                 content, source_type, joke_id, submitted_by = result
             else:
                 # AI fallback
-                content = openai_utils.generate_openai_response(prompts.joke_gen_prompt)
+                content = await openai_utils.generate_openai_response(prompts.joke_gen_prompt)
         else:  # general
             result = get_general_joke()
             if result and result[0]:
                 content, source_type, joke_id, submitted_by = result
             else:
                 # AI fallback
-                content = openai_utils.generate_openai_response(prompts.joke_gen_prompt)
+                content = await openai_utils.generate_openai_response(prompts.joke_gen_prompt)
         
         if not content:
             error_msg = "❌ Sorry, I couldn't generate a joke right now. Try again later!"

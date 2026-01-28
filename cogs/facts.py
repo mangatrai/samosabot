@@ -34,7 +34,7 @@ class FactsCog(commands.Cog):
         self.bot = bot
         logging.info("Facts Cog loaded")
     
-    def get_general_fact(self, guild_id: str = None, guild_name: str = None, 
+    async def get_general_fact(self, guild_id: str = None, guild_name: str = None, 
                         user_id: str = None, username: str = None, command_name: str = "fact"):
         """Get general fact with priority: API (75%) -> Database (20%) -> AI (5%)"""
         from utils import astra_db_ops
@@ -70,7 +70,7 @@ class FactsCog(commands.Cog):
         
         # Fallback to AI (5% chance or if others fail)
         try:
-            fact = self.get_ai_fact("general")
+            fact = await self.get_ai_fact("general")
             if fact:
                 # Store AI-generated fact in database for future use
                 fact_id = astra_db_ops.save_truth_dare_question(
@@ -105,7 +105,7 @@ class FactsCog(commands.Cog):
         
         return None, None, None, None
     
-    def get_animal_fact(self, guild_id: str = None, guild_name: str = None,
+    async def get_animal_fact(self, guild_id: str = None, guild_name: str = None,
                        user_id: str = None, username: str = None, command_name: str = "fact"):
         """Get animal fact with priority: API (75%) -> Database (20%) -> AI (5%)"""
         from utils import astra_db_ops
@@ -155,7 +155,7 @@ class FactsCog(commands.Cog):
         
         # Fallback to AI (5% chance or if others fail)
         try:
-            fact = self.get_ai_fact("animals")
+            fact = await self.get_ai_fact("animals")
             if fact:
                 # Store AI-generated fact in database for future use
                 fact_id = astra_db_ops.save_truth_dare_question(
@@ -191,7 +191,7 @@ class FactsCog(commands.Cog):
         
         return None, None, None, None
     
-    def get_ai_fact(self, category="general"):
+    async def get_ai_fact(self, category="general"):
         """Get AI-generated fact as fallback"""
         try:
             if category == "animals":
@@ -199,7 +199,7 @@ class FactsCog(commands.Cog):
             else:
                 prompt = prompts.fact_general_prompt
             
-            fact = openai_utils.generate_openai_response(prompt)
+            fact = await openai_utils.generate_openai_response(prompt)
             return fact
         except Exception as e:
             logging.error(f"Error generating AI fact: {e}")
@@ -232,17 +232,17 @@ class FactsCog(commands.Cog):
             submitted_by = None
             
             if category == "general":
-                result = self.get_general_fact(guild_id, guild_name, user_id, username, command_name)
+                result = await self.get_general_fact(guild_id, guild_name, user_id, username, command_name)
                 if result and result[0]:
                     fact, source, fact_id, submitted_by = result
                 else:
-                    fact = self.get_ai_fact("general")
+                    fact = await self.get_ai_fact("general")
             elif category == "animals":
-                result = self.get_animal_fact(guild_id, guild_name, user_id, username, command_name)
+                result = await self.get_animal_fact(guild_id, guild_name, user_id, username, command_name)
                 if result and result[0]:
                     fact, source, fact_id, submitted_by = result
                 else:
-                    fact = self.get_ai_fact("animals")
+                    fact = await self.get_ai_fact("animals")
             
             if fact:
                 # Handle feedback collection for database content (including AI-generated)
@@ -308,12 +308,12 @@ class FactsCog(commands.Cog):
                 submitted_by = None
                 
                 if category.lower() in ["general", "g"]:
-                    result = self.get_general_fact(guild_id, guild_name, user_id, username, command_name)
+                    result = await self.get_general_fact(guild_id, guild_name, user_id, username, command_name)
                     if result and result[0]:
                         fact, source, fact_id, submitted_by = result
                     else:
                         # Store AI-generated content in database for feedback collection
-                        fact = self.get_ai_fact("general")
+                        fact = await self.get_ai_fact("general")
                         if fact:
                             from utils import astra_db_ops
                             fact_id = astra_db_ops.save_truth_dare_question(
@@ -331,12 +331,12 @@ class FactsCog(commands.Cog):
                             source = "llm"
                             submitted_by = "AI"
                 elif category.lower() in ["animals", "animal", "a"]:
-                    result = self.get_animal_fact(guild_id, guild_name, user_id, username, command_name)
+                    result = await self.get_animal_fact(guild_id, guild_name, user_id, username, command_name)
                     if result and result[0]:
                         fact, source, fact_id, submitted_by = result
                     else:
                         # Store AI-generated content in database for feedback collection
-                        fact = self.get_ai_fact("animals")
+                        fact = await self.get_ai_fact("animals")
                         if fact:
                             from utils import astra_db_ops
                             fact_id = astra_db_ops.save_truth_dare_question(

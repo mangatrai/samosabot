@@ -62,13 +62,13 @@ class AskCog(commands.Cog):
     async def generate_response(self, prompt):
         try:
             # First, check the prompt's intent and if it's allowed.
-            decision = generate_openai_response(prompt, intent="intent")
+            decision = await generate_openai_response(prompt, intent="intent")
             if not decision.get("isAllowed", False):
                 return "Your question contains sensitive content and is not allowed."
             
             determined_intent = decision.get("intent", "text")
             # Now, generate the actual response based on the determined intent.
-            response = generate_openai_response(prompt, intent=determined_intent)
+            response = await generate_openai_response(prompt, intent=determined_intent)
             return response
         except Exception as e:
             logging.error(f"Error generating response: {e}")

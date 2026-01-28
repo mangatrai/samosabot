@@ -249,7 +249,7 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
     active_trivia_games[guild_id]["state"] = "generating_questions"
 
     # Generate questions
-    content = openai_utils.generate_openai_response(
+    content = await openai_utils.generate_openai_response(
         f"Generate {num_questions} unique and engaging trivia questions in the category of {category}. "
         f"The question must be fresh and not a duplicate of any previous trivia session. "
         f"Avoid generic or frequently used trivia questions—ensure variety by using diverse topics within the category. "
