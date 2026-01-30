@@ -16,6 +16,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 from utils import astra_db_ops
+from utils import error_handler
 from games import trivia_game
 
 class TriviaCog(commands.Cog):
@@ -39,31 +40,37 @@ class TriviaCog(commands.Cog):
         Speed: slow (default) or fast
         Uses interactive buttons for answering questions.
         """
-        guild_id = ctx.guild.id
+        try:
+            guild_id = ctx.guild.id
 
-        if action.lower() == "start":
-            if not category:
-                await ctx.send(
-                    "❌ You must specify a category to start trivia. Example: `!trivia start History`"
-                )
-                return
-            await trivia_game.start_trivia(ctx, category, self.bot, is_slash=False, speed=speed)
+            if action.lower() == "start":
+                if not category:
+                    await ctx.send(
+                        "❌ You must specify a category to start trivia. Example: `!trivia start History`"
+                    )
+                    return
+                await trivia_game.start_trivia(ctx, category, self.bot, is_slash=False, speed=speed)
 
-        elif action.lower() == "stop":
-            await trivia_game.stop_trivia(ctx, guild_id, self.bot)
+            elif action.lower() == "stop":
+                await trivia_game.stop_trivia(ctx, guild_id, self.bot)
 
-        elif action.lower() == "leaderboard":
-            await ctx.send(trivia_game.create_trivia_leaderboard())
+            elif action.lower() == "leaderboard":
+                await ctx.send(trivia_game.create_trivia_leaderboard())
+        except Exception as e:
+            await error_handler.handle_error(e, ctx, "trivia")
 
     @commands.command(name="mystats")
     async def my_stats(self, ctx):
         """View your personal trivia statistics (correct and wrong answers)."""
-        user_id = ctx.author.id
-        stats = astra_db_ops.get_user_stats(user_id)
+        try:
+            user_id = ctx.author.id
+            stats = astra_db_ops.get_user_stats(user_id)
 
-        await ctx.send(
-            f"📊 **{ctx.author.display_name}'s Trivia Stats:**\n✅ Correct Answers: {stats['correct']}\n❌ Wrong Answers: {stats['wrong']}"
-        )
+            await ctx.send(
+                f"📊 **{ctx.author.display_name}'s Trivia Stats:**\n✅ Correct Answers: {stats['correct']}\n❌ Wrong Answers: {stats['wrong']}"
+            )
+        except Exception as e:
+            await error_handler.handle_error(e, ctx, "mystats")
 
     @app_commands.command(name="trivia", description="Start or stop a trivia game")
     @app_commands.describe(
@@ -107,20 +114,23 @@ class TriviaCog(commands.Cog):
         Uses interactive buttons for answering questions.
         Tracks scores and maintains leaderboards.
         """
-        guild_id = interaction.guild_id
+        try:
+            guild_id = interaction.guild_id
 
-        if action == "start":
-            if not category:
-                await interaction.response.send_message(
-                    "❌ You must specify a category to start trivia. Example: `/trivia start History`",
-                    ephemeral=True)
-                return
-            await trivia_game.start_trivia(interaction, category, self.bot, is_slash=True, speed=speed)
+            if action == "start":
+                if not category:
+                    await interaction.response.send_message(
+                        "❌ You must specify a category to start trivia. Example: `/trivia start History`",
+                        ephemeral=True)
+                    return
+                await trivia_game.start_trivia(interaction, category, self.bot, is_slash=True, speed=speed)
 
-        elif action == "stop":
-            await trivia_game.stop_trivia(interaction, guild_id, self.bot, is_slash=True)
-        elif action == "leaderboard":
-            await interaction.response.send_message(trivia_game.create_trivia_leaderboard())
+            elif action == "stop":
+                await trivia_game.stop_trivia(interaction, guild_id, self.bot, is_slash=True)
+            elif action == "leaderboard":
+                await interaction.response.send_message(trivia_game.create_trivia_leaderboard())
+        except Exception as e:
+            await error_handler.handle_error(e, interaction, "trivia")
 
 async def setup(bot):
     await bot.add_cog(TriviaCog(bot))

@@ -41,6 +41,7 @@ import math
 import asyncio
 
 from utils import astra_db_ops,openai_utils,keep_alive,throttle
+from utils import error_handler
 from configs import prompts
 from configs.version import __version__
 
@@ -623,31 +624,25 @@ async def on_command_error(ctx, error):
         command_name = ctx.command.name if ctx.command else "command"
         await ctx.send(f"❌ Invalid arguments. Use `{ctx.prefix}help {command_name}` for usage.")
     else:
-        # Log other errors for debugging purposes
-        logging.error(f"Command error: {error}")
-        await ctx.send("❌ An error occurred. Try again later or use `!help` for available commands.")
+        # Use standardized error handler for unknown errors
+        command_name = ctx.command.name if ctx.command else "unknown"
+        await error_handler.handle_error(error, ctx, command_name)
 
 @tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     """
     Global error handler for slash command errors.
-    Provides friendly error messages and points to help.
+    Uses standardized error handling framework.
     """
-    logging.error(f"Slash command error: {error}")
+    # Extract command name if available
+    command_name = ""
+    if hasattr(interaction, "command") and interaction.command:
+        command_name = interaction.command.name
+    elif hasattr(interaction, "data") and isinstance(interaction.data, dict):
+        command_name = interaction.data.get("name", "")
     
-    try:
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                "❌ Something went wrong. Try again later or use `/help` for available commands.",
-                ephemeral=True
-            )
-        else:
-            await interaction.followup.send(
-                "❌ Something went wrong. Try again later or use `/help` for available commands.",
-                ephemeral=True
-            )
-    except Exception as e:
-        logging.error(f"Error sending error message: {e}")
+    # Use standardized error handler
+    await error_handler.handle_error(error, interaction, command_name)
 
 # Wrap bot.run in a try-except block to handle unexpected crashes
 try:

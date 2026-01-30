@@ -21,6 +21,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 from utils import openai_utils
+from utils import error_handler
 from configs import prompts
 import json
 import logging
@@ -359,8 +360,11 @@ class JokeCog(commands.Cog):
         Categories: dad, insult, general, dark, spooky
         Shows typing indicator while generating.
         """
-        async with ctx.typing():
-            await self.handle_joke_request(ctx, category, is_slash=False)
+        try:
+            async with ctx.typing():
+                await self.handle_joke_request(ctx, category, is_slash=False)
+        except Exception as e:
+            await error_handler.handle_error(e, ctx, "joke")
 
     @app_commands.command(name="joke", description="Get a joke")
     @app_commands.choices(category=[
@@ -377,8 +381,11 @@ class JokeCog(commands.Cog):
         Categories: Dad Joke, Insult, General, Dark, Spooky
         Dad jokes support community feedback via reactions.
         """
-        await interaction.response.defer()
-        await self.handle_joke_request(interaction, category, is_slash=True)
+        try:
+            await interaction.response.defer()
+            await self.handle_joke_request(interaction, category, is_slash=True)
+        except Exception as e:
+            await error_handler.handle_error(e, interaction, "joke")
 
     @app_commands.command(name="joke-submit", description="Submit your own dad joke")
     @app_commands.choices(rating=[
@@ -431,14 +438,7 @@ class JokeCog(commands.Cog):
                 await interaction.followup.send("❌ Failed to submit your joke. Please try again later.", ephemeral=True)
                 
         except Exception as e:
-            logging.error(f"Error in slash_joke_submit: {e}")
-            try:
-                if not interaction.response.is_done():
-                    await interaction.response.send_message("❌ An error occurred while submitting your joke.", ephemeral=True)
-                else:
-                    await interaction.followup.send("❌ An error occurred while submitting your joke.", ephemeral=True)
-            except:
-                pass  # Interaction might be expired
+            await error_handler.handle_error(e, interaction, "joke-submit")
 
 async def setup(bot):
     await bot.add_cog(JokeCog(bot))

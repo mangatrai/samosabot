@@ -273,11 +273,8 @@ async def start_trivia(source, category: str = "general", bot=None, num_question
     try:
         questions_data = json.loads(content)
     except (json.JSONDecodeError, KeyError, Exception) as e:
-        logging.error(f"Error generating trivia questions: {e}")
-        if is_slash:
-            await source.followup.send("⚠️ Error: Failed to generate trivia questions. Please try again later.", ephemeral=True)
-        else:
-            await source.send("⚠️ Error: Failed to generate trivia questions. Please try again later.")
+        from utils import error_handler
+        await error_handler.handle_error(e, source, "trivia")
         return
 
     # Update state to indicate we're playing
@@ -471,12 +468,8 @@ async def stop_trivia(source, guild_id, bot, is_slash = False):
             active_trivia_games.pop(guild_id, None)
             
         except Exception as e:
-            logging.error(f"Error stopping trivia game: {e}")
-            error_message = "An error occurred while stopping the trivia game."
-            if is_slash:
-                await source.response.send_message(error_message, ephemeral=True)
-            else:
-                await source.send(error_message)
+            from utils import error_handler
+            await error_handler.handle_error(e, source, "trivia")
     else:
         if is_slash:
             await source.response.send_message("❌ No active trivia game found.")
@@ -572,9 +565,9 @@ async def show_leaderboard(source, guild_id, bot):
                 await source.channel.send(embed=embed)
                 
         except Exception as e:
-            logging.error(f"Error showing leaderboard: {e}")
-            error_message = "An error occurred while showing the leaderboard."
+            from utils import error_handler
             if isinstance(source, commands.Context):
-                await source.send(error_message)
+                await error_handler.handle_error(e, source, "trivia")
             else:
+                await error_handler.handle_error(e, source, "trivia")
                 await source.channel.send(error_message)

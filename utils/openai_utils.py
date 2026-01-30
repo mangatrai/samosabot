@@ -173,15 +173,19 @@ async def generate_openai_response(prompt, intent="text", model=None):
             return generated_text
 
     except Exception as e:
-        logging.error(f"[ERROR] OpenAI API call failed: {e}")
+        # For intent check: return fallback (business logic, not an error)
         if intent == "intent":
+            logging.warning(f"OpenAI API call failed for intent check, using fallback: {e}")
             return {"isAllowed": False, "intent": "text"}
+        # For verification: return default questions (fallback)
         elif intent == "verification":
-            # Return default questions as fallback
+            logging.warning(f"OpenAI API call failed for verification, using default questions: {e}")
             return [
                 {"question": "What is 2+2?", "answer": "4"},
                 {"question": "What color is the sky?", "answer": "blue"},
                 {"question": "How many days are in a week?", "answer": "7"}
             ]
+        # For text/image generation: raise exception so error handler can catch it with context
         else:
-            return "[ERROR] Unable to generate response. Please try again later."
+            logging.error(f"[ERROR] OpenAI API call failed for {intent} intent: {e}")
+            raise

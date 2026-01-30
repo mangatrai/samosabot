@@ -22,6 +22,7 @@ import random
 import os
 from dotenv import load_dotenv
 from utils import openai_utils
+from utils import error_handler
 from configs import prompts
 
 # Load environment variables
@@ -283,8 +284,7 @@ class FactsCog(commands.Cog):
                 await interaction.followup.send("❌ Sorry, I couldn't get a fact right now. Try again later!")
                 
         except Exception as e:
-            logging.error(f"Error in slash_fact: {e}")
-            await interaction.followup.send("❌ An error occurred while getting your fact.")
+            await error_handler.handle_error(e, interaction, "fact")
     
     @commands.command(name="fact")
     async def prefix_fact(self, ctx, category: str = "general"):
@@ -395,8 +395,7 @@ class FactsCog(commands.Cog):
                     await ctx.send("❌ Sorry, I couldn't get a fact right now. Try again later!")
                 
             except Exception as e:
-                logging.error(f"Error in prefix_fact: {e}")
-                await ctx.send("❌ An error occurred while getting your fact.")
+                await error_handler.handle_error(e, ctx, "fact")
 
     @app_commands.command(name="fact-submit", description="Submit your own fact")
     @app_commands.choices(category=[
@@ -453,8 +452,7 @@ class FactsCog(commands.Cog):
                 await interaction.response.send_message("❌ Failed to submit your fact. Please try again later.", ephemeral=True)
                 
         except Exception as e:
-            logging.error(f"Error in slash_fact_submit: {e}")
-            await interaction.response.send_message("❌ An error occurred while submitting your fact.", ephemeral=True)
+            await error_handler.handle_error(e, interaction, "fact-submit")
 
 async def setup(bot):
     """Setup function for cog loading"""

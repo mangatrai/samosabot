@@ -21,6 +21,7 @@ from discord.ext import commands
 from PIL import Image, ImageDraw, ImageFont
 
 from configs.ship_messages import SHIP_MESSAGES
+from utils import error_handler
 
 
 class ShipCog(commands.Cog):
@@ -331,7 +332,11 @@ class ShipCog(commands.Cog):
             embed = self.create_ship_embed(user1, user2, percentage, has_image=has_image)
             await self._send_ship_embed(source, embed=embed, image_file=image_file, is_slash=is_slash)
         except Exception as e:
-            logging.error(f"Error in ship command: {e}", exc_info=True)
+            command_name = "ship" if not is_slash else "ship"
+            if isinstance(source, discord.Interaction):
+                await error_handler.handle_error(e, source, command_name)
+            else:
+                await error_handler.handle_error(e, source, command_name)
             error_msg = "❌ An error occurred while calculating compatibility. Try again later!"
             if not is_slash:
                 await source.send(error_msg)  # type: ignore[attr-defined]

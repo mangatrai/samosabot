@@ -26,6 +26,7 @@ from dotenv import load_dotenv
 # Import existing utilities
 from utils import astra_db_ops
 from utils import openai_utils
+from utils import error_handler
 from configs import prompts
 
 load_dotenv()
@@ -285,8 +286,7 @@ class TruthDareCog(commands.Cog):
                 astra_db_ops.add_message_metadata(question_id, str(message.id), str(interaction.guild_id), str(interaction.channel_id))
             
         except Exception as e:
-            logging.error(f"Error in slash_tod: {e}")
-            await interaction.followup.send("❌ An error occurred while getting your question.")
+            await error_handler.handle_error(e, interaction, "tod")
 
     @app_commands.command(name="tod-submit", description="Submit your own Truth or Dare question")
     @app_commands.choices(type=[
@@ -340,8 +340,7 @@ class TruthDareCog(commands.Cog):
                 await interaction.response.send_message("❌ Failed to submit your question. Please try again later.", ephemeral=True)
                 
         except Exception as e:
-            logging.error(f"Error in slash_tod_submit: {e}")
-            await interaction.response.send_message("❌ An error occurred while submitting your question.", ephemeral=True)
+            await error_handler.handle_error(e, interaction, "tod-submit")
 
 class TruthDareView(discord.ui.View):
     def __init__(self, current_action: str, current_rating: str, cog_instance, requested_type=None):
@@ -446,15 +445,7 @@ class ActionButton(discord.ui.Button):
                 astra_db_ops.add_message_metadata(question_id, str(message.id), str(interaction.guild_id), str(interaction.channel_id))
             
         except Exception as e:
-            logging.error(f"Error in ActionButton callback: {e}")
-            # Try to send error message
-            try:
-                if not interaction.response.is_done():
-                    await interaction.response.send_message("❌ An error occurred while getting your question.", ephemeral=True)
-                else:
-                    await interaction.followup.send("❌ An error occurred while getting your question.")
-            except:
-                pass  # Interaction might be expired
+            await error_handler.handle_error(e, interaction, "tod")
 
 class FeedbackButton(discord.ui.Button):
     def __init__(self, question_id: str, feedback_type: str):
@@ -480,15 +471,7 @@ class FeedbackButton(discord.ui.Button):
                 await interaction.response.send_message("❌ Failed to record feedback. Please try again.", ephemeral=True)
                 
         except Exception as e:
-            logging.error(f"Error in FeedbackButton callback: {e}")
-            # Try to send error message
-            try:
-                if not interaction.response.is_done():
-                    await interaction.response.send_message("❌ An error occurred while recording feedback.", ephemeral=True)
-                else:
-                    await interaction.followup.send("❌ An error occurred while recording feedback.")
-            except:
-                pass  # Interaction might be expired
+            await error_handler.handle_error(e, interaction, "tod-feedback")
 
 async def setup(bot):
     await bot.add_cog(TruthDareCog(bot))

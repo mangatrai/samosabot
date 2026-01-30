@@ -25,6 +25,7 @@ from utils.astra_db_ops import (
 )
 
 from utils.openai_utils import generate_openai_response
+from utils import error_handler
 
 # Load environment variables
 load_dotenv()
@@ -71,8 +72,8 @@ class AskCog(commands.Cog):
             response = await generate_openai_response(prompt, intent=determined_intent)
             return response
         except Exception as e:
-            logging.error(f"Error generating response: {e}")
-            return "An error occurred while generating the response."
+            # Error will be handled by caller
+            raise
 
     @commands.command(name="asksamosa")
     async def ask_samosa(self, ctx, *, question):
@@ -110,53 +111,62 @@ class AskCog(commands.Cog):
         await self.handle_request(interaction, question)
 
     async def handle_request(self, interaction, question):
-        user_id = interaction.user.id if isinstance(interaction, discord.Interaction) else interaction.author.id
+        try:
+            user_id = interaction.user.id if isinstance(interaction, discord.Interaction) else interaction.author.id
 
-        daily_count = get_daily_request_count(user_id)
-        if daily_count >= USER_DAILY_QUE_LIMIT:
-            message = f"You've reached your daily limit of {USER_DAILY_QUE_LIMIT} requests."
-            if isinstance(interaction, discord.Interaction):
-                await interaction.response.send_message(message)
-            else:
-                await interaction.send(message)
-            return
-
-        if isinstance(interaction, discord.Interaction):
-            try:
-                await interaction.response.defer()
-            except discord.errors.NotFound:
-                logging.warning("Interaction not found or already responded to.")
-        else:
-            await interaction.defer()
-
-        response = await self.generate_response(question)
-
-        if response:
-            embed = discord.Embed()
-            if response.startswith("http"):
-                embed.set_image(url=response)
-            else:
-                embed.description = response
+            daily_count = get_daily_request_count(user_id)
+            if daily_count >= USER_DAILY_QUE_LIMIT:
+                # Functional error - business rule violation
+                await error_handler.handle_functional_error(
+                    f"Daily limit of {USER_DAILY_QUE_LIMIT} requests reached",
+                    interaction,
+                    "ask",
+                    f"You've reached your daily limit of {USER_DAILY_QUE_LIMIT} requests."
+                )
+                return
 
             if isinstance(interaction, discord.Interaction):
-                await interaction.followup.send(embed=embed)
+                try:
+                    await interaction.response.defer()
+                except discord.errors.NotFound:
+                    logging.warning("Interaction not found or already responded to.")
+                    return
             else:
-                await interaction.send(embed=embed)
+                await interaction.defer()
 
-            # Extract guild and channel info
-            guild_id = str(interaction.guild_id) if isinstance(interaction, discord.Interaction) and interaction.guild_id else (str(interaction.guild.id) if interaction.guild else None)
-            guild_name = interaction.guild.name if isinstance(interaction, discord.Interaction) and interaction.guild else (interaction.guild.name if interaction.guild else None)
-            username = interaction.user.display_name if isinstance(interaction, discord.Interaction) else interaction.author.display_name
-            channel_id = str(interaction.channel_id) if isinstance(interaction, discord.Interaction) and interaction.channel_id else (str(interaction.channel.id) if interaction.channel else None)
-            
-            increment_daily_request_count(user_id)  # Keep old call for /ask limit (no guild info)
-            insert_user_request(user_id, question, response, guild_id, guild_name, username, channel_id)
-        else:
-            error_message = "Failed to generate a response."
-            if isinstance(interaction, discord.Interaction):
-                await interaction.followup.send(error_message)
+            response = await self.generate_response(question)
+
+            if response:
+                embed = discord.Embed()
+                if response.startswith("http"):
+                    embed.set_image(url=response)
+                else:
+                    embed.description = response
+
+                if isinstance(interaction, discord.Interaction):
+                    await interaction.followup.send(embed=embed)
+                else:
+                    await interaction.send(embed=embed)
+
+                # Extract guild and channel info
+                guild_id = str(interaction.guild_id) if isinstance(interaction, discord.Interaction) and interaction.guild_id else (str(interaction.guild.id) if interaction.guild else None)
+                guild_name = interaction.guild.name if isinstance(interaction, discord.Interaction) and interaction.guild else (interaction.guild.name if interaction.guild else None)
+                username = interaction.user.display_name if isinstance(interaction, discord.Interaction) else interaction.author.display_name
+                channel_id = str(interaction.channel_id) if isinstance(interaction, discord.Interaction) and interaction.channel_id else (str(interaction.channel.id) if interaction.channel else None)
+                
+                increment_daily_request_count(user_id)  # Keep old call for /ask limit (no guild info)
+                insert_user_request(user_id, question, response, guild_id, guild_name, username, channel_id)
             else:
-                await interaction.send(error_message)
+                # Functional error - failed to generate
+                await error_handler.handle_functional_error(
+                    "Failed to generate response",
+                    interaction,
+                    "ask",
+                    "Failed to generate a response."
+                )
+        except Exception as e:
+            command_name = "ask_slash" if isinstance(interaction, discord.Interaction) else "ask_samosa"
+            await error_handler.handle_error(e, interaction, command_name)
 
 async def setup(bot):
     await bot.add_cog(AskCog(bot))

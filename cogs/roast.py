@@ -16,6 +16,7 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 from utils import openai_utils
+from utils import error_handler
 from configs import prompts
 
 class RoastCog(commands.Cog):
@@ -47,11 +48,14 @@ class RoastCog(commands.Cog):
             ctx (commands.Context): The context of the command.
             user (discord.Member, optional): The user to roast.
         """
-        async with ctx.typing():
-            target = user.display_name if user else ctx.author.display_name
-            prompt = prompts.roast_prompt.format(target=target)
-            content = await openai_utils.generate_openai_response(prompt)
-            await ctx.send(f"🔥 {content}")
+        try:
+            async with ctx.typing():
+                target = user.display_name if user else ctx.author.display_name
+                prompt = prompts.roast_prompt.format(target=target)
+                content = await openai_utils.generate_openai_response(prompt)
+                await ctx.send(f"🔥 {content}")
+        except Exception as e:
+            await error_handler.handle_error(e, ctx, "roast")
 
     @app_commands.command(name="roast", description="Generate a witty roast for a user.")
     @app_commands.describe(user="The user to roast (optional)")
@@ -66,11 +70,14 @@ class RoastCog(commands.Cog):
             interaction (discord.Interaction): The interaction object from Discord.
             user (discord.Member, optional): The user to roast.
         """
-        await interaction.response.defer()
-        target = user.display_name if user else interaction.user.display_name
-        prompt = prompts.roast_prompt.format(target=target)
-        content = await openai_utils.generate_openai_response(prompt)
-        await interaction.followup.send(f"🔥 {content}")
+        try:
+            await interaction.response.defer()
+            target = user.display_name if user else interaction.user.display_name
+            prompt = prompts.roast_prompt.format(target=target)
+            content = await openai_utils.generate_openai_response(prompt)
+            await interaction.followup.send(f"🔥 {content}")
+        except Exception as e:
+            await error_handler.handle_error(e, interaction, "slash_roast")
 
 async def setup(bot: commands.Bot):
     """
