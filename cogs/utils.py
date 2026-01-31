@@ -77,6 +77,17 @@ class UtilsCog(commands.Cog):
             inline=False
         )
         
+        # Community Section
+        embed.add_field(
+            name="💬 Community",
+            value=(
+                "`/confession <message>` - Submit an anonymous confession\n"
+                "`/confession-setup` - Configure confession settings (admin only)\n"
+                "\n*Confessions are analyzed for sentiment and may be auto-approved or queued for review*"
+            ),
+            inline=False
+        )
+        
         # AI & Questions Section
         embed.add_field(
             name="🤖 AI & Questions",

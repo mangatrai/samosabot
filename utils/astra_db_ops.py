@@ -877,6 +877,231 @@ def save_truth_dare_question(guild_id: str, user_id: str, question: str,
         logging.error(f"Error saving truth/dare question: {e}")
         return None
 
+# Confession-related database operations
+
+def get_confession_settings(guild_id: int) -> dict:
+    """
+    Get confession settings for a guild from registered_servers collection.
+    
+    Returns:
+        dict: Confession settings including:
+            - confession_enabled: bool
+            - confession_channel_id: str
+            - confession_admin_channel_id: str
+            - confession_approval_required: bool
+            - confession_auto_approve_enabled: bool
+            - confession_counter: int
+    """
+    try:
+        collection = get_registered_servers_collection()
+        if collection is None:
+            return None
+        
+        result = collection.find_one({"guild_id": str(guild_id)})
+        if result:
+            return {
+                "confession_enabled": result.get("confession_enabled", False),
+                "confession_channel_id": result.get("confession_channel_id"),
+                "confession_admin_channel_id": result.get("confession_admin_channel_id"),
+                "confession_approval_required": result.get("confession_approval_required", True),
+                "confession_auto_approve_enabled": result.get("confession_auto_approve_enabled", False),
+                "confession_counter": result.get("confession_counter", 0)
+            }
+        return None
+    except Exception as e:
+        logging.error(f"Error getting confession settings: {e}")
+        return None
+
+def update_confession_settings(guild_id: int, settings: dict):
+    """
+    Update confession settings for a guild in registered_servers collection.
+    
+    Args:
+        guild_id: The Discord guild ID
+        settings: Dictionary containing settings to update
+    """
+    try:
+        collection = get_registered_servers_collection()
+        if collection is None:
+            return
+        
+        collection.find_one_and_update(
+            {"guild_id": str(guild_id)},
+            {"$set": settings},
+            upsert=True
+        )
+        logging.info(f"Updated confession settings for guild {guild_id}")
+    except Exception as e:
+        logging.error(f"Error updating confession settings: {e}")
+
+def get_next_confession_id(guild_id: int) -> int:
+    """
+    Atomically increment and return the next confession ID for a guild.
+    
+    Args:
+        guild_id: The Discord guild ID
+        
+    Returns:
+        int: Next confession ID (1-indexed)
+    """
+    try:
+        collection = get_registered_servers_collection()
+        if collection is None:
+            return 1
+        
+        result = collection.find_one_and_update(
+            {"guild_id": str(guild_id)},
+            {"$inc": {"confession_counter": 1}},
+            upsert=True,
+            return_document="after"  # Must be string "after" or "before", not boolean
+        )
+        
+        # If upsert created new document, counter starts at 1
+        # Otherwise, return the incremented value
+        if result:
+            counter = result.get("confession_counter", 1)
+            logging.info(f"Next confession ID for guild {guild_id}: {counter}")
+            return counter
+        else:
+            # Fallback: if result is None, try to get current value and increment manually
+            logging.warning(f"find_one_and_update returned None for guild {guild_id}, using fallback")
+            existing = collection.find_one({"guild_id": str(guild_id)})
+            if existing:
+                current_counter = existing.get("confession_counter", 0)
+                new_counter = current_counter + 1
+                collection.update_one(
+                    {"guild_id": str(guild_id)},
+                    {"$set": {"confession_counter": new_counter}}
+                )
+                logging.info(f"Fallback: Next confession ID for guild {guild_id}: {new_counter}")
+                return new_counter
+            else:
+                # First confession for this guild
+                collection.update_one(
+                    {"guild_id": str(guild_id)},
+                    {"$set": {"confession_counter": 1}},
+                    upsert=True
+                )
+                logging.info(f"First confession for guild {guild_id}: 1")
+                return 1
+    except Exception as e:
+        logging.error(f"Error getting next confession ID: {e}")
+        return 1
+
+def save_confession(user_id: str, username: str, guild_id: str, guild_name: str,
+                   confession_text: str, confession_id: int, sentiment_data: dict,
+                   channel_id: str = None) -> str:
+    """
+    Save a confession to user_requests collection with request_type="confession".
+    
+    Args:
+        user_id: User ID who submitted confession
+        username: User display name
+        guild_id: Guild ID
+        guild_name: Guild name
+        confession_text: Confession content
+        confession_id: Guild-specific confession ID
+        sentiment_data: Sentiment analysis results
+        channel_id: Channel ID where confession was submitted
+        
+    Returns:
+        str: Document ID or None if failed
+    """
+    try:
+        collection = get_user_requests_collection()
+        if collection is None:
+            return None
+        
+        document = {
+            "user_id": str(user_id),
+            "username": username,
+            "guild_id": guild_id,
+            "guild_name": guild_name,
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "channel_id": channel_id,
+            "question": confession_text,  # Repurposed field
+            "response": "pending",  # Repurposed field (status)
+            "request_type": "confession",
+            "confession_id": confession_id,
+            "sentiment_score": sentiment_data.get("score", 0.0),
+            "sentiment_category": sentiment_data.get("category", "neutral"),
+            "sentiment_confidence": sentiment_data.get("confidence", "low"),
+            "sentiment_details": sentiment_data.get("details", {}),
+            "auto_approved": sentiment_data.get("auto_approve", False)
+        }
+        
+        result = collection.insert_one(document)
+        logging.debug(f"Confession saved: ID #{confession_id} for user {user_id}")
+        return str(result.inserted_id)
+    except Exception as e:
+        logging.error(f"Error saving confession: {e}")
+        return None
+
+def update_confession_status(confession_id: int, guild_id: str, status: str,
+                            admin_id: str = None, admin_username: str = None,
+                            rejection_reason: str = None):
+    """
+    Update confession status in user_requests collection.
+    
+    Args:
+        confession_id: Confession ID
+        guild_id: Guild ID
+        status: New status (approved/rejected)
+        admin_id: Admin user ID who reviewed
+        admin_username: Admin display name
+        rejection_reason: Optional rejection reason
+    """
+    try:
+        collection = get_user_requests_collection()
+        if collection is None:
+            return
+        
+        update_data = {
+            "response": status,  # Repurposed field
+            "reviewed_at": datetime.datetime.utcnow().isoformat()
+        }
+        
+        if admin_id:
+            update_data["admin_id"] = str(admin_id)
+        if admin_username:
+            update_data["admin_username"] = admin_username
+        if rejection_reason:
+            update_data["rejection_reason"] = rejection_reason
+        
+        collection.update_one(
+            {"confession_id": confession_id, "guild_id": guild_id, "request_type": "confession"},
+            {"$set": update_data}
+        )
+        logging.debug(f"Updated confession #{confession_id} status to {status}")
+    except Exception as e:
+        logging.error(f"Error updating confession status: {e}")
+
+def get_confession_by_id(confession_id: int, guild_id: str) -> dict:
+    """
+    Get confession by ID from user_requests collection.
+    
+    Args:
+        confession_id: Confession ID
+        guild_id: Guild ID
+        
+    Returns:
+        dict: Confession document or None
+    """
+    try:
+        collection = get_user_requests_collection()
+        if collection is None:
+            return None
+        
+        result = collection.find_one({
+            "confession_id": confession_id,
+            "guild_id": guild_id,
+            "request_type": "confession"
+        })
+        return result
+    except Exception as e:
+        logging.error(f"Error getting confession by ID: {e}")
+        return None
+
 def get_truth_dare_question_by_id(question_id: str):
     """Get a specific question by its ID."""
     try:

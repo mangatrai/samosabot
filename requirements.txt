@@ -5,3 +5,5 @@ flask
 astrapy
 requests
 Pillow
+vaderSentiment>=3.3.2
+nltk>=3.8.1
