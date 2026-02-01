@@ -1,6 +1,6 @@
 # 🤖 Discord Bot - User Guide
 
-A feature-rich Discord bot that brings **Trivia Games, Truth or Dare, Random Facts, AI-generated Jokes, Pickup Lines, Roasts, and more** to your server!
+A feature-rich Discord bot that brings **Trivia Games, Truth or Dare, Anonymous Confessions, Random Facts, AI-generated Jokes, Pickup Lines, Roasts, and more** to your server!
 
 ---
 
@@ -8,12 +8,14 @@ A feature-rich Discord bot that brings **Trivia Games, Truth or Dare, Random Fac
 
 - 🎉 **Trivia Game** – Play interactive trivia with automatic score tracking and leaderboards
 - 🎯 **Truth or Dare** – Interactive party game with user submissions and feedback
+- 💬 **Anonymous Confessions** – Submit confessions with sentiment analysis; admins can require approval, auto-approve positive posts, and review with First/Previous/Next/Last pagination
 - 📚 **Random Facts** – Get interesting facts about animals and general topics
 - 🤣 **AI-Powered Jokes** – Multiple joke categories including dad jokes, dark humor, and more
 - 💘 **Pickup Lines** – Generate flirty and witty pickup lines
 - 🔥 **Roast Machine** – Generate playful AI-powered roasts
 - 🔮 **AI Fortune Teller** – Receive fun AI-generated fortunes
 - 📢 **Question of the Day** – Daily thought-provoking questions
+- 🚢 **Ship** – See compatibility between two users
 
 ---
 
@@ -49,6 +51,28 @@ A feature-rich Discord bot that brings **Trivia Games, Truth or Dare, Random Fac
 - **Paranoia** – Spooky questions
 
 **Rating Options:** Family-friendly (PG13) or Adult Only (R)
+
+---
+
+### 💬 Anonymous Confessions
+
+Users submit confessions via slash command only (for anonymity). Every confession is analyzed for sentiment (positive, negative, neutral, concerning). Admins can require approval, enable auto-approval for positive confessions, and review queued confessions with approve/reject buttons. Every posted confession gets a discussion thread.
+
+| Command | Description |
+|---------|-------------|
+| `/confession <message>` | Submit an anonymous confession (10–2000 characters) |
+| `/confession-setup` | Configure confession settings **(admin only)** |
+| `/confession-view <id>` | View a confession by ID **(admin only)** |
+| `/confession-history` | List confession history with First/Previous/Next/Last pagination **(admin only)** |
+
+**Setup (admin):** Use `/confession-setup` with action **Enable** to turn on confessions and set the confession channel. If you want review before posting, set **approval required** and the **admin channel**; you can optionally enable **auto-approve** so positive confessions post without review.
+
+**Workflow:**
+- **No approval required:** Confession is posted to the confession channel and a thread is created; you get an ephemeral confirmation.
+- **Approval required, auto-approve on:** Positive confessions are posted and a thread is created; others go to the admin channel for review.
+- **Approval required, auto-approve off:** All confessions go to the admin channel; admins use ✅ Approve / ❌ Reject. Approved confessions are posted and get a thread; you are notified by DM when your confession is approved or rejected.
+
+**Confession history:** Admins use `/confession-history` to see a paginated table (ID, Status, Submitted by, Sentiment, Preview, Submitted) and use **First**, **Previous**, **Next**, **Last** buttons to move between pages.
 
 ---
 
@@ -107,6 +131,14 @@ A feature-rich Discord bot that brings **Trivia Games, Truth or Dare, Random Fac
 
 ---
 
+### 🚢 Ship
+| Command | Description |
+|---------|-------------|
+| `/ship <user1> <user2>` | See compatibility percentage between two users |
+| `!ship <user1> <user2>` | Ship (prefix command) |
+
+---
+
 ### 📢 Question of the Day
 | Command | Description |
 |---------|-------------|
@@ -120,9 +152,11 @@ A feature-rich Discord bot that brings **Trivia Games, Truth or Dare, Random Fac
 ### 🔧 Utility Commands
 | Command | Description |
 |---------|-------------|
+| `/help` | List all commands and categories |
+| `!help` | Help (prefix command) |
+| `!ping` | Check bot response time |
 | `/ask <question>` | Ask the AI anything or generate images |
 | `!asksamosa <question>` | Ask the AI (prefix command) |
-| `!ping` | Check bot response time |
 | `/verification` | Configure server verification |
 | `/verification_status` | Check verification settings |
 | `/setup_wizard` | Start verification setup wizard |
@@ -159,11 +193,13 @@ A feature-rich Discord bot that brings **Trivia Games, Truth or Dare, Random Fac
 4. Check leaderboards with `/trivia leaderboard`
 
 ### Special Features
+- **Anonymous Confessions** – Slash-only submission, sentiment analysis (VADER), optional admin approval, and discussion threads for every posted confession
 - **Interactive Buttons** – Many commands use clickable buttons for easy navigation (buttons persist after bot restarts)
 - **Emoji Reactions** – Rate content quality with 👍/👎 reactions for jokes, facts, and Truth or Dare questions
 - **User Submissions** – Submit your own Truth or Dare questions, jokes, and facts
 - **Smart Fallbacks** – If APIs fail, AI generates content automatically
 - **Multi-Source Content** – Content comes from APIs, community database, or AI generation
+- **Standardized Errors** – Errors show consistent messages and suggest `!help` or `!ping` where useful; logs include command, user, and guild for debugging
 
 ---
 
@@ -180,11 +216,12 @@ The bot needs these permissions to work properly:
 
 ## 💡 Tips
 
-- **Use slash commands** for the best experience - they're faster and more reliable
-- **Try different joke categories** - each has its own style and humor
-- **Submit your own Truth or Dare questions** - help grow the community database
-- **Rate AI content** - your feedback helps improve the bot's responses
-- **Check trivia leaderboards** - compete with friends for the top spot!
+- **Use slash commands** for the best experience – they're faster and more reliable
+- **Confessions are anonymous** – use `/confession` only (no prefix command) so your identity stays private
+- **Try different joke categories** – each has its own style and humor
+- **Submit your own Truth or Dare questions** – help grow the community database
+- **Rate AI content** – your feedback helps improve the bot's responses
+- **Check trivia leaderboards** – compete with friends for the top spot!
 
 ---
 
