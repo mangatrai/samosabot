@@ -15,6 +15,7 @@ Features:
 """
 
 import math
+import re
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -22,6 +23,7 @@ import logging
 from utils import astra_db_ops
 from utils import error_handler
 from utils.sentiment_analyzer import ConfessionSentimentAnalyzer
+from utils.interaction_helpers import get_interaction_message
 
 # Column widths for confession history table (code block)
 _HIST_ID_W = 4
@@ -47,180 +49,59 @@ class ConfessionApprovalView(discord.ui.View):
     @discord.ui.button(label="✅ Approve", style=discord.ButtonStyle.success, custom_id="confession_approve")
     async def approve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Handle confession approval."""
-        try:
-            # Check admin permissions
-            if not interaction.user.guild_permissions.administrator:
-                await interaction.response.send_message(
-                    "❌ You need administrator permissions to approve confessions.",
-                    ephemeral=True
-                )
-                return
-            
-            # Get confession data
-            confession = astra_db_ops.get_confession_by_id(self.confession_id, self.guild_id)
-            if not confession:
-                await interaction.response.send_message(
-                    "❌ Confession not found.",
-                    ephemeral=True
-                )
-                return
-            
-            # Check if already processed (handle both "approved" and "auto-approved")
-            current_status = confession.get("response", "pending")
-            if current_status not in ["pending"]:
-                status_display = current_status.replace("-", " ").title()
-                await interaction.response.send_message(
-                    f"❌ This confession has already been {status_display}.",
-                    ephemeral=True
-                )
-                return
-            
-            # Get settings
-            settings = astra_db_ops.get_confession_settings(int(self.guild_id))
-            if not settings or not settings.get("confession_channel_id"):
-                await interaction.response.send_message(
-                    "❌ Confession channel not configured.",
-                    ephemeral=True
-                )
-                return
-            
-            # Get confession channel
-            confession_channel = interaction.guild.get_channel(int(settings["confession_channel_id"]))
-            if not confession_channel:
-                await interaction.response.send_message(
-                    "❌ Confession channel not found.",
-                    ephemeral=True
-                )
-                return
-            
-            # Update status
-            astra_db_ops.update_confession_status(
-                self.confession_id,
-                self.guild_id,
-                "approved",
-                admin_id=interaction.user.id,
-                admin_username=interaction.user.display_name
-            )
-            
-            # Post to confession channel and create thread (ALWAYS create thread)
-            confession_text = confession.get("question", "")
-            await self.cog.post_confession_to_channel(
-                self.confession_id,
-                confession_text,
-                confession_channel
-            )
-            
-            # Update admin message
-            admin_embed = interaction.message.embeds[0] if interaction.message.embeds else discord.Embed()
-            admin_embed.color = discord.Color.green()
-            admin_embed.set_footer(text=f"✅ Approved by {interaction.user.display_name} | Confession ID: #{self.confession_id}")
-            
-            # Remove buttons
-            self.clear_items()
-            await interaction.response.edit_message(embed=admin_embed, view=None)
-            
-            # Try to DM the confession submitter (NOT the admin)
-            submitter_user_id = confession.get("user_id")
-            admin_user_id = str(interaction.user.id)
-            
-            if not submitter_user_id:
-                logging.error(f"Confession #{self.confession_id} has no user_id field - cannot send DM")
-            else:
-                try:
-                    logging.info(f"Sending approval DM to confession submitter (user_id: {submitter_user_id}), admin is {admin_user_id}")
-                    user = await interaction.client.fetch_user(int(submitter_user_id))
-                    if user:
-                        await user.send(f"✅ Your confession #{self.confession_id} has been approved and posted.")
-                        logging.info(f"Successfully sent approval DM to user {submitter_user_id}")
-                    else:
-                        logging.warning(f"Could not fetch user {submitter_user_id} for DM")
-                except discord.errors.Forbidden:
-                    logging.warning(f"Could not send DM to user {submitter_user_id}: User has DMs disabled")
-                except Exception as e:
-                    logging.warning(f"Could not send DM to confession submitter {submitter_user_id}: {e}")
-            
-            logging.info(f"Confession #{self.confession_id} approved by admin {interaction.user.display_name} (ID: {admin_user_id})")
-            
-        except Exception as e:
-            await error_handler.handle_error(e, interaction, "confession-approve")
+        await self.cog._do_approve(self.confession_id, self.guild_id, interaction)
     
     @discord.ui.button(label="❌ Reject", style=discord.ButtonStyle.danger, custom_id="confession_reject")
     async def reject_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Handle confession rejection."""
+        await self.cog._do_reject(self.confession_id, self.guild_id, interaction)
+
+
+def _parse_confession_id_from_message(message: discord.Message) -> int | None:
+    """Parse confession ID from embed footer (e.g. 'Confession ID: #123' or '... | Confession ID: #123')."""
+    if not message.embeds:
+        return None
+    footer = (message.embeds[0].footer.text or "").strip()
+    match = re.search(r"Confession ID: #(\d+)", footer)
+    return int(match.group(1)) if match else None
+
+
+class PersistentConfessionApprovalView(discord.ui.View):
+    """Persistent view so approve/reject buttons work after bot restart. Parses confession_id from message footer."""
+
+    def __init__(self, cog_instance):
+        super().__init__(timeout=None)
+        self.cog = cog_instance
+
+    @discord.ui.button(label="✅ Approve", style=discord.ButtonStyle.success, custom_id="confession_approve")
+    async def approve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._handle(interaction, "approve")
+
+    @discord.ui.button(label="❌ Reject", style=discord.ButtonStyle.danger, custom_id="confession_reject")
+    async def reject_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._handle(interaction, "reject")
+
+    async def _handle(self, interaction: discord.Interaction, action: str):
         try:
-            # Check admin permissions
-            if not interaction.user.guild_permissions.administrator:
-                await interaction.response.send_message(
-                    "❌ You need administrator permissions to reject confessions.",
-                    ephemeral=True
-                )
+            await interaction.response.defer()
+            msg = await get_interaction_message(interaction)
+            if not msg:
+                await interaction.followup.send("❌ Could not load message.", ephemeral=True)
                 return
-            
-            # Get confession data
-            confession = astra_db_ops.get_confession_by_id(self.confession_id, self.guild_id)
-            if not confession:
-                await interaction.response.send_message(
-                    "❌ Confession not found.",
-                    ephemeral=True
-                )
+            confession_id = _parse_confession_id_from_message(msg)
+            if confession_id is None:
+                await interaction.followup.send("❌ Could not determine confession ID from this message.", ephemeral=True)
                 return
-            
-            # Check if already processed (handle both "approved" and "auto-approved")
-            current_status = confession.get("response", "pending")
-            if current_status not in ["pending"]:
-                status_display = current_status.replace("-", " ").title()
-                await interaction.response.send_message(
-                    f"❌ This confession has already been {status_display}.",
-                    ephemeral=True
-                )
+            guild_id = str(interaction.guild_id) if interaction.guild_id else None
+            if not guild_id:
+                await interaction.followup.send("❌ Could not determine server.", ephemeral=True)
                 return
-            
-            # Update status
-            astra_db_ops.update_confession_status(
-                self.confession_id,
-                self.guild_id,
-                "rejected",
-                admin_id=interaction.user.id,
-                admin_username=interaction.user.display_name,
-                rejection_reason="Rejected by administrator"
-            )
-            
-            # Update admin message
-            admin_embed = interaction.message.embeds[0] if interaction.message.embeds else discord.Embed()
-            admin_embed.color = discord.Color.red()
-            admin_embed.set_footer(text=f"❌ Rejected by {interaction.user.display_name} | Confession ID: #{self.confession_id}")
-            
-            # Remove buttons
-            self.clear_items()
-            await interaction.response.edit_message(embed=admin_embed, view=None)
-            
-            # Try to DM the confession submitter (NOT the admin)
-            submitter_user_id = confession.get("user_id")
-            admin_user_id = str(interaction.user.id)
-            
-            if not submitter_user_id:
-                logging.error(f"Confession #{self.confession_id} has no user_id field - cannot send DM")
+            if action == "approve":
+                await self.cog._do_approve(confession_id, guild_id, interaction)
             else:
-                try:
-                    logging.info(f"Sending rejection DM to confession submitter (user_id: {submitter_user_id}), admin is {admin_user_id}")
-                    user = await interaction.client.fetch_user(int(submitter_user_id))
-                    if user:
-                        await user.send(
-                            f"❌ Your confession #{self.confession_id} has been rejected.\n\n"
-                            "If you have questions, please contact a server administrator."
-                        )
-                        logging.info(f"Successfully sent rejection DM to user {submitter_user_id}")
-                    else:
-                        logging.warning(f"Could not fetch user {submitter_user_id} for DM")
-                except discord.errors.Forbidden:
-                    logging.warning(f"Could not send DM to user {submitter_user_id}: User has DMs disabled")
-                except Exception as e:
-                    logging.warning(f"Could not send DM to confession submitter {submitter_user_id}: {e}")
-            
-            logging.info(f"Confession #{self.confession_id} rejected by admin {interaction.user.display_name} (ID: {admin_user_id})")
-            
+                await self.cog._do_reject(confession_id, guild_id, interaction)
         except Exception as e:
-            await error_handler.handle_error(e, interaction, "confession-reject")
+            await error_handler.handle_error(e, interaction, "confession-persistent")
 
 
 class ConfessionHistoryView(discord.ui.View):
@@ -305,6 +186,10 @@ class ConfessionCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    async def cog_load(self):
+        """Register persistent view so approve/reject buttons work after bot restart."""
+        self.bot.add_view(PersistentConfessionApprovalView(self))
+
     def build_confession_history_embed(
         self, guild_id: str, page: int, page_size: int, total_count: int
     ) -> discord.Embed:
@@ -372,6 +257,107 @@ class ConfessionCog(commands.Cog):
         )
         
         return message
+    
+    async def _reply_ephemeral(self, interaction: discord.Interaction, text: str):
+        """Send ephemeral reply; use followup if response already sent (e.g. after defer)."""
+        if interaction.response.is_done():
+            await interaction.followup.send(text, ephemeral=True)
+        else:
+            await interaction.response.send_message(text, ephemeral=True)
+    
+    async def _do_approve(self, confession_id: int, guild_id: str, interaction: discord.Interaction):
+        """Run approval logic. Works for both in-memory and persistent views (handles deferred interaction)."""
+        try:
+            if not interaction.user.guild_permissions.administrator:
+                await self._reply_ephemeral(interaction, "❌ You need administrator permissions to approve confessions.")
+                return
+            confession = astra_db_ops.get_confession_by_id(confession_id, guild_id)
+            if not confession:
+                await self._reply_ephemeral(interaction, "❌ Confession not found.")
+                return
+            current_status = confession.get("response", "pending")
+            if current_status not in ["pending"]:
+                status_display = current_status.replace("-", " ").title()
+                await self._reply_ephemeral(interaction, f"❌ This confession has already been {status_display}.")
+                return
+            settings = astra_db_ops.get_confession_settings(int(guild_id))
+            if not settings or not settings.get("confession_channel_id"):
+                await self._reply_ephemeral(interaction, "❌ Confession channel not configured.")
+                return
+            confession_channel = interaction.guild.get_channel(int(settings["confession_channel_id"]))
+            if not confession_channel:
+                await self._reply_ephemeral(interaction, "❌ Confession channel not found.")
+                return
+            astra_db_ops.update_confession_status(
+                confession_id, guild_id, "approved",
+                admin_id=interaction.user.id,
+                admin_username=interaction.user.display_name
+            )
+            confession_text = confession.get("question", "")
+            await self.post_confession_to_channel(confession_id, confession_text, confession_channel)
+            msg = await get_interaction_message(interaction)
+            admin_embed = (msg.embeds[0] if msg and msg.embeds else discord.Embed())
+            admin_embed.color = discord.Color.green()
+            admin_embed.set_footer(text=f"✅ Approved by {interaction.user.display_name} | Confession ID: #{confession_id}")
+            if interaction.response.is_done() and msg:
+                await msg.edit(embed=admin_embed, view=None)
+            else:
+                await interaction.response.edit_message(embed=admin_embed, view=None)
+            submitter_user_id = confession.get("user_id")
+            if submitter_user_id:
+                try:
+                    user = await interaction.client.fetch_user(int(submitter_user_id))
+                    if user:
+                        await user.send(f"✅ Your confession #{confession_id} has been approved and posted.")
+                except (discord.errors.Forbidden, Exception):
+                    pass
+            logging.info(f"Confession #{confession_id} approved by admin {interaction.user.display_name}")
+        except Exception as e:
+            await error_handler.handle_error(e, interaction, "confession-approve")
+    
+    async def _do_reject(self, confession_id: int, guild_id: str, interaction: discord.Interaction):
+        """Run rejection logic. Works for both in-memory and persistent views (handles deferred interaction)."""
+        try:
+            if not interaction.user.guild_permissions.administrator:
+                await self._reply_ephemeral(interaction, "❌ You need administrator permissions to reject confessions.")
+                return
+            confession = astra_db_ops.get_confession_by_id(confession_id, guild_id)
+            if not confession:
+                await self._reply_ephemeral(interaction, "❌ Confession not found.")
+                return
+            current_status = confession.get("response", "pending")
+            if current_status not in ["pending"]:
+                status_display = current_status.replace("-", " ").title()
+                await self._reply_ephemeral(interaction, f"❌ This confession has already been {status_display}.")
+                return
+            astra_db_ops.update_confession_status(
+                confession_id, guild_id, "rejected",
+                admin_id=interaction.user.id,
+                admin_username=interaction.user.display_name,
+                rejection_reason="Rejected by administrator"
+            )
+            msg = await get_interaction_message(interaction)
+            admin_embed = (msg.embeds[0] if msg and msg.embeds else discord.Embed())
+            admin_embed.color = discord.Color.red()
+            admin_embed.set_footer(text=f"❌ Rejected by {interaction.user.display_name} | Confession ID: #{confession_id}")
+            if interaction.response.is_done() and msg:
+                await msg.edit(embed=admin_embed, view=None)
+            else:
+                await interaction.response.edit_message(embed=admin_embed, view=None)
+            submitter_user_id = confession.get("user_id")
+            if submitter_user_id:
+                try:
+                    user = await interaction.client.fetch_user(int(submitter_user_id))
+                    if user:
+                        await user.send(
+                            f"❌ Your confession #{confession_id} has been rejected.\n\n"
+                            "If you have questions, please contact a server administrator."
+                        )
+                except (discord.errors.Forbidden, Exception):
+                    pass
+            logging.info(f"Confession #{confession_id} rejected by admin {interaction.user.display_name}")
+        except Exception as e:
+            await error_handler.handle_error(e, interaction, "confession-reject")
     
     async def handle_confession_submission(self, interaction: discord.Interaction, confession_text: str):
         """
