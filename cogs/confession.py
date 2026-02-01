@@ -14,6 +14,7 @@ Features:
 - Full audit trail in database
 """
 
+import math
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -21,6 +22,14 @@ import logging
 from utils import astra_db_ops
 from utils import error_handler
 from utils.sentiment_analyzer import ConfessionSentimentAnalyzer
+
+# Column widths for confession history table (code block)
+_HIST_ID_W = 4
+_HIST_STATUS_W = 12
+_HIST_BY_W = 14
+_HIST_SENT_W = 10
+_HIST_PREVIEW_W = 28
+_HIST_DATE_W = 10
 
 # Initialize sentiment analyzer (singleton)
 sentiment_analyzer = ConfessionSentimentAnalyzer()
@@ -214,11 +223,134 @@ class ConfessionApprovalView(discord.ui.View):
             await error_handler.handle_error(e, interaction, "confession-reject")
 
 
+class ConfessionHistoryView(discord.ui.View):
+    """Pagination view for confession history: First, Previous, Next, Last.
+    Uses @discord.ui.button decorators so callbacks get (interaction, button) and _refresh always receives page.
+    """
+
+    def __init__(self, guild_id: str, current_page: int, total_pages: int, total_count: int,
+                 page_size: int, user_id: int, cog_instance):
+        super().__init__(timeout=120)
+        self.guild_id = guild_id
+        self.current_page = current_page
+        self.total_pages = total_pages
+        self.total_count = total_count
+        self.page_size = page_size
+        self.user_id = user_id
+        self.cog = cog_instance
+
+    def _do_page(self, interaction: discord.Interaction, page: int):
+        """Build embed and new view for given page; used by all button callbacks."""
+        if not interaction.user.guild_permissions.administrator:
+            return None, "❌ Administrator only."
+        if interaction.user.id != self.user_id:
+            return None, "❌ Only the user who ran the command can use these buttons."
+        embed = self.cog.build_confession_history_embed(
+            self.guild_id, page, self.page_size, self.total_count
+        )
+        new_view = ConfessionHistoryView(
+            self.guild_id, page, self.total_pages, self.total_count,
+            self.page_size, self.user_id, self.cog
+        )
+        return new_view, embed
+
+    @discord.ui.button(label="First", style=discord.ButtonStyle.primary, row=0, custom_id="confession_history_first")
+    async def first_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page <= 1:
+            await interaction.response.defer()
+            return
+        view, embed = self._do_page(interaction, 1)
+        if view is None:
+            await interaction.response.send_message(embed, ephemeral=True)
+            return
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Previous", style=discord.ButtonStyle.primary, row=0, custom_id="confession_history_prev")
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page <= 1:
+            await interaction.response.defer()
+            return
+        view, embed = self._do_page(interaction, self.current_page - 1)
+        if view is None:
+            await interaction.response.send_message(embed, ephemeral=True)
+            return
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.success, row=0, custom_id="confession_history_next")
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page >= self.total_pages:
+            await interaction.response.defer()
+            return
+        view, embed = self._do_page(interaction, self.current_page + 1)
+        if view is None:
+            await interaction.response.send_message(embed, ephemeral=True)
+            return
+        await interaction.response.edit_message(embed=embed, view=view)
+
+    @discord.ui.button(label="Last", style=discord.ButtonStyle.primary, row=0, custom_id="confession_history_last")
+    async def last_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page >= self.total_pages:
+            await interaction.response.defer()
+            return
+        view, embed = self._do_page(interaction, self.total_pages)
+        if view is None:
+            await interaction.response.send_message(embed, ephemeral=True)
+            return
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
 class ConfessionCog(commands.Cog):
     """Cog for anonymous confession functionality."""
     
     def __init__(self, bot):
         self.bot = bot
+
+    def build_confession_history_embed(
+        self, guild_id: str, page: int, page_size: int, total_count: int
+    ) -> discord.Embed:
+        """Build paginated confession history embed with table (ID, Status, Submitted by, Sentiment, Preview, Submitted)."""
+        skip = (page - 1) * page_size
+        confessions = astra_db_ops.get_all_confessions(guild_id, limit=page_size, skip=skip)
+        total_pages = max(1, math.ceil(total_count / page_size)) if total_count else 1
+
+        # Header row (labels as first row)
+        id_h = self._pad("ID", _HIST_ID_W)
+        status_h = self._pad("Status", _HIST_STATUS_W)
+        by_h = self._pad("Submitted by", _HIST_BY_W)
+        sent_h = self._pad("Sentiment", _HIST_SENT_W)
+        preview_h = self._pad("Preview", _HIST_PREVIEW_W)
+        date_h = self._pad("Submitted", _HIST_DATE_W)
+        header = f"```\n{id_h} {status_h} {by_h} {sent_h} {preview_h} {date_h}\n"
+        sep = f"{'-' * _HIST_ID_W} {'-' * _HIST_STATUS_W} {'-' * _HIST_BY_W} {'-' * _HIST_SENT_W} {'-' * _HIST_PREVIEW_W} {'-' * _HIST_DATE_W}\n"
+        body_lines = [header, sep]
+
+        for c in confessions:
+            cid = str(c.get("confession_id", "?"))
+            status = (c.get("response") or "pending").replace("-", " ")
+            by = (c.get("username") or "?")[: _HIST_BY_W]
+            sent = (c.get("sentiment_category") or "—")[: _HIST_SENT_W]
+            text = (c.get("question") or "").replace("\n", " ").strip()
+            preview = (text[: _HIST_PREVIEW_W - 1] + "…") if len(text) > _HIST_PREVIEW_W else text
+            ts = (c.get("timestamp") or "?")[:10]
+            body_lines.append(
+                f"{self._pad(cid, _HIST_ID_W)} {self._pad(status, _HIST_STATUS_W)} "
+                f"{self._pad(by, _HIST_BY_W)} {self._pad(sent, _HIST_SENT_W)} "
+                f"{self._pad(preview, _HIST_PREVIEW_W)} {self._pad(ts, _HIST_DATE_W)}\n"
+            )
+        body_lines.append("```")
+        description = "".join(body_lines)
+
+        embed = discord.Embed(
+            title=f"Confession History — Page {page} of {total_pages}",
+            color=discord.Color.blue(),
+            description=description
+        )
+        embed.set_footer(text=f"Total: {total_count} confessions • {page_size} per page")
+        return embed
+
+    def _pad(self, s: str, w: int) -> str:
+        s = (s or "")[:w]
+        return s.ljust(w)
     
     async def post_confession_to_channel(self, confession_id: int, confession_text: str, 
                                         channel: discord.TextChannel) -> discord.Message:
@@ -658,6 +790,82 @@ class ConfessionCog(commands.Cog):
             )
         except Exception as e:
             await error_handler.handle_error(e, interaction, "confession-setup")
+
+    @app_commands.command(name="confession-view", description="View a confession by ID (admin only)")
+    @app_commands.describe(confession_id="Confession ID (e.g. 1, 2, 3)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def confession_view(self, interaction: discord.Interaction, confession_id: int):
+        """Show full details of a confession. Admin only."""
+        try:
+            if not interaction.guild_id:
+                await interaction.response.send_message("❌ Use this command in a server.", ephemeral=True)
+                return
+            guild_id = str(interaction.guild_id)
+            confession = astra_db_ops.get_confession_by_id(confession_id, guild_id)
+            if not confession:
+                await interaction.response.send_message(
+                    f"❌ No confession found with ID **#{confession_id}** in this server.",
+                    ephemeral=True
+                )
+                return
+            status = confession.get("response", "pending")
+            status_display = status.replace("-", " ").title()
+            embed = discord.Embed(
+                title=f"Confession #{confession_id}",
+                color=discord.Color.blue(),
+                description=(confession.get("question") or "")[:4000]
+            )
+            embed.add_field(name="Status", value=status_display, inline=True)
+            embed.add_field(name="Submitted by", value=f"{confession.get('username', '?')} (`{confession.get('user_id', '?')}`)", inline=True)
+            embed.add_field(name="Guild", value=confession.get("guild_name", "?"), inline=True)
+            embed.add_field(name="Submitted", value=confession.get("timestamp", "?"), inline=True)
+            sentiment = confession.get("sentiment_category", "—")
+            score = confession.get("sentiment_score")
+            if score is not None:
+                embed.add_field(name="Sentiment", value=f"{sentiment} (score: {score:.2f})", inline=True)
+            else:
+                embed.add_field(name="Sentiment", value=sentiment, inline=True)
+            if status not in ["pending"]:
+                admin_name = confession.get("admin_username") or confession.get("admin_id") or "—"
+                embed.add_field(name="Reviewed by", value=admin_name, inline=True)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        except app_commands.MissingPermissions:
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to view confessions.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await error_handler.handle_error(e, interaction, "confession-view")
+
+    @app_commands.command(name="confession-history", description="List confession history for this server (admin only)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def confession_history(self, interaction: discord.Interaction):
+        """List confessions for the guild with First/Previous/Next/Last buttons. Admin only."""
+        try:
+            if not interaction.guild_id:
+                await interaction.response.send_message("❌ Use this command in a server.", ephemeral=True)
+                return
+            guild_id = str(interaction.guild_id)
+            page_size = 10
+            settings = astra_db_ops.get_confession_settings(interaction.guild_id) or {}
+            total_count = settings.get("confession_counter", 0)
+            if total_count == 0:
+                await interaction.response.send_message("No confessions found.", ephemeral=True)
+                return
+            total_pages = max(1, math.ceil(total_count / page_size))
+            embed = self.build_confession_history_embed(guild_id, 1, page_size, total_count)
+            view = ConfessionHistoryView(
+                guild_id, 1, total_pages, total_count, page_size,
+                interaction.user.id, self
+            )
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        except app_commands.MissingPermissions:
+            await interaction.response.send_message(
+                "❌ You need administrator permissions to view confession history.",
+                ephemeral=True
+            )
+        except Exception as e:
+            await error_handler.handle_error(e, interaction, "confession-history")
 
 
 async def setup(bot):

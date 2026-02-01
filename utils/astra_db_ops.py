@@ -1102,6 +1102,33 @@ def get_confession_by_id(confession_id: int, guild_id: str) -> dict:
         logging.error(f"Error getting confession by ID: {e}")
         return None
 
+def get_all_confessions(guild_id: str, limit: int = 10, skip: int = 0) -> list:
+    """
+    Get confessions for a guild, newest first. For pagination use skip=(page-1)*limit.
+
+    Args:
+        guild_id: Guild ID
+        limit: Max number of confessions to return (default 10)
+        skip: Number of confessions to skip (default 0)
+
+    Returns:
+        list: List of confession documents
+    """
+    try:
+        collection = get_user_requests_collection()
+        if collection is None:
+            return []
+        cursor = collection.find(
+            {"guild_id": str(guild_id), "request_type": "confession"},
+            sort={"confession_id": -1},
+            limit=limit,
+            skip=skip
+        )
+        return list(cursor)
+    except Exception as e:
+        logging.error(f"Error getting confessions for guild: {e}")
+        return []
+
 def get_truth_dare_question_by_id(question_id: str):
     """Get a specific question by its ID."""
     try:

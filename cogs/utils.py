@@ -83,6 +83,8 @@ class UtilsCog(commands.Cog):
             value=(
                 "`/confession <message>` - Submit an anonymous confession\n"
                 "`/confession-setup` - Configure confession settings (admin only)\n"
+                "`/confession-view <id>` - View a confession by ID (admin only)\n"
+                "`/confession-history` - List confession history with pagination (admin only)\n"
                 "\n*Confessions are analyzed for sentiment and may be auto-approved or queued for review*"
             ),
             inline=False
