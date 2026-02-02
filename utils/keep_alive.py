@@ -11,6 +11,7 @@ restarting the process). Requires RELOAD_SECRET in env. Not an end-user feature.
 
 import os
 import asyncio
+import logging
 from flask import Flask, request, jsonify
 from threading import Thread
 
@@ -47,13 +48,32 @@ def reload_extensions():
     for ext in to_reload:
         try:
             future = asyncio.run_coroutine_threadsafe(_bot_ref.reload_extension(ext), _bot_ref.loop)
-            future.result(timeout=15)
+            future.result(timeout=30)
             reloaded.append(ext)
         except Exception as e:
             errors.append(f"{ext}: {e}")
+
+    # Schedule tree.sync() on the bot's loop so new slash commands appear on Discord.
+    # Do not wait for it—sync can take 10s+ and would cause HTTP timeouts.
+    async def _sync_and_log():
+        try:
+            await _bot_ref.tree.sync(guild=None)
+            logging.info("[reload] tree.sync completed successfully")
+        except Exception as e:
+            logging.warning("[reload] tree.sync failed: %s", e)
+    try:
+        asyncio.run_coroutine_threadsafe(_sync_and_log(), _bot_ref.loop)
+    except Exception as e:
+        errors.append(f"tree.sync(schedule): {e}")
+
     if errors:
-        return jsonify({"ok": len(reloaded) > 0, "reloaded": reloaded, "errors": errors}), 200
-    return jsonify({"ok": True, "reloaded": reloaded}), 200
+        return jsonify({
+            "ok": len(reloaded) > 0,
+            "reloaded": reloaded,
+            "synced": "scheduled",
+            "errors": errors
+        }), 200
+    return jsonify({"ok": True, "reloaded": reloaded, "synced": "scheduled"}), 200
 
 
 def init_reload(bot):

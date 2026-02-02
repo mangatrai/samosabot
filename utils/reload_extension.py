@@ -34,8 +34,9 @@ def main():
         sys.exit(1)
     url = f"{RELOAD_URL}/reload"
     params = {"cog": cog, "secret": RELOAD_SECRET}
+    # Timeout allows "reload all" to finish; tree.sync runs in background and does not block
     try:
-        r = requests.get(url, params=params, timeout=15)
+        r = requests.get(url, params=params, timeout=90)
     except requests.RequestException as e:
         print(f"Request failed: {e}")
         sys.exit(1)
@@ -46,6 +47,8 @@ def main():
         sys.exit(1)
     if r.status_code == 200:
         print("OK:", data.get("reloaded", []))
+        if data.get("synced") == "scheduled":
+            print("Slash commands syncing to Discord in background.")
         if data.get("errors"):
             print("Errors:", data["errors"])
     else:
