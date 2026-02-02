@@ -32,7 +32,6 @@ Running this module starts the bot and connects it to Discord using the specifie
 from configs import setup_logger
 import discord
 import os
-import requests
 from discord.ext import commands, tasks
 from discord import app_commands
 from dotenv import load_dotenv
@@ -40,7 +39,7 @@ import logging
 import math
 import asyncio
 
-from utils import astra_db_ops,openai_utils,keep_alive,throttle
+from utils import astra_db_ops, keep_alive, throttle
 from utils import error_handler
 from configs import prompts
 from configs.version import __version__
@@ -49,21 +48,8 @@ from configs.version import __version__
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 PREFIX = os.getenv("BOT_PREFIX", "!")  # Default prefix if not set
-RIZZAPI_URL = os.getenv("RIZZAPI_URL")
 
 EXTENSIONS = os.getenv("EXTENSIONS", "").split(",")
-
-# Function to get pickup line from RizzAPI
-def get_rizzapi_pickup():
-    """Get pickup line from RizzAPI, return None if fails"""
-    try:
-        response = requests.get(RIZZAPI_URL, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            return data.get('text', None)
-    except Exception as e:
-        logging.warning(f"RizzAPI failed: {e}")
-    return None
 
 # Intents & Bot Setup
 intents = discord.Intents.default()
@@ -77,264 +63,13 @@ tree = bot.tree
 # First user heuristic tracking
 newly_joined_guilds = set()  # Track guilds that just joined for first user detection
 
-# QOTD Schedule Tracking
-qotd_channels = {}  # Dictionary to store QOTD channel IDs per server
 # Global dictionary to track user command timestamps
 user_command_timestamps = {}
 
-#prompts laoding
-qotd_prompt = prompts.qotd_prompt
+# Prompts loading (used by bot.py commands)
 joke_insult_prompt = prompts.joke_insult_prompt
 joke_dad_prompt = prompts.joke_dad_prompt
 joke_gen_prompt = prompts.joke_gen_prompt
-pickup_prompt = prompts.pickup_prompt
-
-# Load scheduled QOTD channels from AstraDB
-def load_qotd_schedules():
-    """Load scheduled QOTD channels from AstraDB."""
-    return astra_db_ops.load_qotd_schedules()
-
-# Save scheduled QOTD channels
-def save_qotd_schedules():
-    """Save QOTD channels in AstraDB."""
-    for guild_id, channel_id in qotd_channels.items():
-        astra_db_ops.save_qotd_schedules({"guild_id": guild_id, "channel_id": channel_id})
-
-# Initialize QOTD storage
-qotd_channels = load_qotd_schedules()
-
-# Retrieve user stats from AstraDB
-def get_user_stats(user_id):
-    """Fetch user statistics from trivia_leaderboard in AstraDB."""
-    return astra_db_ops.get_user_stats(user_id)
-
-# Update user stats in AstraDB
-def update_user_stats(user_id, username, correct_increment=0, wrong_increment=0):
-    """Update user statistics and leaderboard in AstraDB."""
-    astra_db_ops.update_user_stats(user_id, username, correct_increment, wrong_increment)
-
-# Load stored bot status channels from AstraDB
-def load_bot_status_channels():
-    """Load bot status channels from AstraDB."""
-    return astra_db_ops.load_bot_status_channels()
-
-# Save bot status channel to AstraDB
-def save_bot_status_channel(guild_id, channel_id):
-    """Save bot status channel in AstraDB."""
-    astra_db_ops.save_bot_status_channel(guild_id, channel_id)
-
-# Initialize bot status channels
-bot_status_channels = load_bot_status_channels()
-
-# Scheduled QOTD Task
-@tasks.loop(hours=24)
-async def scheduled_qotd():
-    for guild_id, channel_id in qotd_channels.items():
-        channel = bot.get_channel(channel_id)
-        if channel:
-            content = await openai_utils.generate_openai_response(qotd_prompt)
-            await channel.send(f"🌟 **Question of the Day:** {content}")
-        else:
-            logging.warning(f"QOTD channel {channel_id} not found for server {guild_id}")
-
-
-# Scheduled BotStatus Task
-@tasks.loop(minutes=30)
-async def bot_status_task():
-    """Send periodic bot status updates."""
-    bot_status_channels = astra_db_ops.load_bot_status_channels()  # Load from AstraDB
-    for guild_id, channel_id in bot_status_channels.items():
-        # Check if channel_id is None or empty, then skip updating
-        if channel_id is None:
-            logging.warning(f"No channel set for guild {guild_id}. Skipping status update.")
-            continue
-
-        try:
-            # Ensure channel_id is a valid integer before using it
-            channel = bot.get_channel(int(channel_id))
-            if channel:
-                await channel.send("✅ **SamosaBot is up and running!** 🔥")
-            else:
-                logging.warning(f"Could not find channel {channel_id} for guild {guild_id}. Removing entry.")
-                astra_db_ops.save_bot_status_channel(guild_id, None)
-        except Exception as e:
-            logging.error(f"Error sending bot status update for guild {guild_id}: {e}")
-
-# Prefix Command for Bot Status
-@bot.command(name="samosa")
-async def samosa(ctx, action: str, channel: discord.TextChannel = None):
-    """
-    Configure bot status updates for the server.
-    
-    Actions:
-        - botstatus: Enable bot status updates (sends every 30 minutes to specified channel)
-        - disable: Disable bot status updates for this server
-    
-    Args:
-        ctx: Command context
-        action: Action to perform (botstatus or disable)
-        channel: Optional channel for bot status updates (defaults to current channel)
-    """
-    if action.lower() == "botstatus":
-        channel_id = channel.id if channel else ctx.channel.id  # Use input channel or default to current channel
-        guild_id = ctx.guild.id
-
-       # Store bot status channel in Postgres
-        save_bot_status_channel(guild_id, channel_id)
-        await ctx.send(f"✅ Bot status updates will be sent to <#{channel_id}> every 30 minutes.")
-
-        # Start the scheduled bot status task if not running
-        if not bot_status_task.is_running():
-            bot_status_task.start()
-    elif action.lower() == "disable":
-        guild_id = ctx.guild.id
-        save_bot_status_channel(guild_id, None)
-        await ctx.send("✅ Bot status updates have been disabled for this server.")
-
-# Prefix Command for SetQOTD Channel
-@bot.command(name="setqotdchannel")
-async def set_qotd_channel(ctx, channel_id: int = None):
-    """
-    Set the channel for scheduled Question of the Day posts.
-    
-    Args:
-        ctx: Command context
-        channel_id: Optional channel ID (defaults to current channel if not provided)
-    """
-    if channel_id is None:
-        channel_id = ctx.channel.id  # Default to the current channel if none is provided
-
-    # ✅ Reload qotd_channels from database to ensure correct state
-    qotd_channels = load_qotd_schedules()
-    qotd_channels[ctx.guild.id] = channel_id  # Store in memory
-    save_qotd_schedules()  # Save to Postgres DB
-    await ctx.send(
-        f"✅ Scheduled QOTD channel set to <#{channel_id}> for this server."
-    )
-
-# Prefix Command for StartQOTD
-@bot.command(name="startqotd")
-async def start_qotd(ctx):
-    """
-    Start the scheduled Question of the Day task (posts every 24 hours).
-    
-    Requires a QOTD channel to be set first using !setqotdchannel.
-    """
-
-    qotd_channels = load_qotd_schedules()  # ✅ Refresh data from DB
-
-    if ctx.guild.id not in qotd_channels or not qotd_channels[ctx.guild.id]:
-        await ctx.send("[ERROR] No scheduled QOTD channel set for this server. Use `!setqotdchannel <channel_id>`")
-        return
-
-    if not scheduled_qotd.is_running():  # ✅ Prevent duplicate loops
-        scheduled_qotd.start()
-        await ctx.send("✅ Scheduled QOTD started for this server!")
-    else:
-        await ctx.send("⚠️ QOTD is already running!")  # ✅ Avoid duplicate start
-
-# Prefix Command for QOTD
-@bot.command(name="qotd")
-async def qotd(ctx):
-    """Get a random AI-generated Question of the Day."""
-    async with ctx.typing():
-        content = await openai_utils.generate_openai_response(qotd_prompt)
-        await ctx.send(f"🌟 **Question of the Day:** {content}")
-
-
-# Prefix Command for Pick-up Line
-@bot.command(name="pickup")
-async def pickup(ctx):
-    """Get a fun pickup line from RizzAPI or AI fallback."""
-    async with ctx.typing():
-        # Try RizzAPI first
-        content = get_rizzapi_pickup()
-        if content is None:
-            # Fallback to AI
-            content = await openai_utils.generate_openai_response(pickup_prompt)
-        await ctx.send(f"💘 **Pick-up Line:** {content}")
-
-#Compliment Machine
-@bot.command(name="compliment")
-async def compliment(ctx, user: discord.Member = None):
-    """Generate a compliment for a user."""
-    async with ctx.typing():
-        target = user.display_name if user else ctx.author.display_name
-        prompt = f"Generate a wholesome and genuine compliment for {target}."
-        content = await openai_utils.generate_openai_response(prompt)
-        await ctx.send(f"💖 {content}")
-
-#AI-Powered Fortune Teller
-@bot.command(name="fortune")
-async def fortune(ctx):
-    """Give a user their AI-powered fortune."""
-    async with ctx.typing():
-        prompt = "Generate a fun, unpredictable, and mystical fortune-telling message. Keep it engaging and lighthearted."
-        content = await openai_utils.generate_openai_response(prompt)
-        await ctx.send(f"🔮 **Your fortune:** {content}")
-
-# Prefix command to ListServers who have bot registered
-@bot.command(name="listservers")
-async def list_servers(ctx):
-    """
-    List all servers (guilds) where the bot is registered along with their installation dates.
-    """
-    servers = astra_db_ops.list_registered_servers()
-    if servers:
-        response_lines = ["📜 **Registered Servers:**"]
-        for server in servers:
-            response_lines.append(
-                f"**{server['guild_name']}** (ID: {server['guild_id']}), Installed: {server['installed_at']}"
-            )
-        await ctx.send("\n".join(response_lines))
-    else:
-        await ctx.send("No registered servers found.")
-
-# Slash Command for Bot Status
-@tree.command(name="samosa", description="Check or enable bot status updates")
-@app_commands.describe(action="Enable or disable bot status updates", channel="Select a channel (optional, defaults to current)")
-@app_commands.choices(action=[
-    app_commands.Choice(name="Bot Status", value="botstatus"),
-    app_commands.Choice(name="Disable", value="disable")
-])
-async def slash_samosa(interaction: discord.Interaction, action: str, channel: discord.TextChannel = None):
-    if action.lower() == "botstatus":
-        channel_id = channel.id if channel else interaction.channel.id
-        guild_id = interaction.guild_id
-
-        # Store bot status channel in AstraDB
-        save_bot_status_channel(guild_id, channel_id)
-        await interaction.response.send_message(f"✅ Bot status updates will be sent to <#{channel_id}> every 30 minutes.")
-
-        # Start the scheduled bot status task if not running
-        if not bot_status_task.is_running():
-            bot_status_task.start()
-    elif action.lower() == "disable":
-        guild_id = interaction.guild_id
-        save_bot_status_channel(guild_id, None)
-        await interaction.response.send_message("✅ Bot status updates have been disabled for this server.")
-
-# Slash Command for QOTD
-@tree.command(name="qotd", description="Get a Question of the Day")
-async def slash_qotd(interaction: discord.Interaction):
-    try:
-        await interaction.response.defer()  # Acknowledge the interaction immediately
-        content = await openai_utils.generate_openai_response(qotd_prompt)
-        await interaction.followup.send(f"🌟 **Question of the Day:** {content}")
-    except Exception as e:
-        logging.error(f"Error in slash_qotd: {e}")
-        await interaction.followup.send("❌ An error occurred while fetching the Question of the Day.")
-
-# Slash Command with Pickup
-@tree.command(name="pickup", description="Get a pick-up line")
-async def slash_pickup(interaction: discord.Interaction):
-    await interaction.response.defer()
-    # Try RizzAPI first
-    content = get_rizzapi_pickup()
-    if content is None:
-        # Fallback to AI
-        content = await openai_utils.generate_openai_response(pickup_prompt)
-    await interaction.followup.send(f"💘 **Pick-up Line:** {content}")
 
 @bot.event
 async def on_ready():
@@ -352,17 +87,6 @@ async def on_ready():
             logging.warning(f"Extension '{ext.strip()}' is already loaded. Skipping.")
         except Exception as e:
             logging.error(f"[ERROR] Failed to load extension '{ext.strip()}': {e}", exc_info=True)
-
-    # Load stored QOTD schedules and bot status channels from DB
-    qotd_channels = load_qotd_schedules()
-    bot_status_channels = load_bot_status_channels()
-
-    logging.debug(f"[DEBUG] Loaded QOTD schedules: {qotd_channels}")
-    logging.debug(f"[DEBUG] Loaded bot status channels: {bot_status_channels}")
-
-    # Start bot status task if channels are stored
-    if bot_status_channels and not bot_status_task.is_running():
-        bot_status_task.start()
 
     # Wait for cogs to fully register commands
     await asyncio.sleep(2)

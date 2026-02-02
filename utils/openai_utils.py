@@ -158,7 +158,7 @@ async def generate_openai_response(prompt, intent="text", model=None):
                 model=model,
                 messages=[
                     {"role": "system", "content": (
-                        "Keep your response concise and under 2000 characters. "
+                        "Keep your response concise and under 1800 characters. "
                         "Ensure the story is complete and doesn't cut off mid-sentence. "
                         "Use bold, tongue-in-cheek edgy, and humorously explicit language to create a provocative, fun, and memorable narrative."
         )},

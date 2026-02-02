@@ -2,12 +2,16 @@
 UtilsCog Module
 
 This module defines a utility cog for the Discord bot, providing common helper commands.
-It includes commands such as 'ping' to check the bot's latency and 'help' to display all available commands.
+It includes ping, help, bot status (samosa), and listservers.
 """
 
+import logging
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
+
+from utils import astra_db_ops
+
 
 class UtilsCog(commands.Cog):
     """
@@ -29,6 +33,30 @@ class UtilsCog(commands.Cog):
             bot (commands.Bot): The Discord bot instance.
         """
         self.bot = bot
+
+    @tasks.loop(minutes=30)
+    async def bot_status_task(self):
+        """Send periodic bot status updates."""
+        bot_status_channels = astra_db_ops.load_bot_status_channels()
+        for guild_id, channel_id in bot_status_channels.items():
+            if channel_id is None:
+                logging.warning(f"No channel set for guild {guild_id}. Skipping status update.")
+                continue
+            try:
+                channel = self.bot.get_channel(int(channel_id))
+                if channel:
+                    await channel.send("✅ **SamosaBot is up and running!** 🔥")
+                else:
+                    logging.warning(f"Could not find channel {channel_id} for guild {guild_id}. Removing entry.")
+                    astra_db_ops.save_bot_status_channel(guild_id, None)
+            except Exception as e:
+                logging.error(f"Error sending bot status update for guild {guild_id}: {e}")
+
+    async def cog_load(self):
+        """Start bot status task if channels are stored."""
+        bot_status_channels = astra_db_ops.load_bot_status_channels()
+        if bot_status_channels and not self.bot_status_task.is_running():
+            self.bot_status_task.start()
 
     def create_help_embed(self):
         """Create a comprehensive help embed with all bot commands organized by category."""
@@ -168,6 +196,54 @@ class UtilsCog(commands.Cog):
         """
         latency = round(self.bot.latency * 1000)
         await ctx.send(f"Pong! Latency: {latency}ms")
+
+    @commands.command(name="samosa", description="Configure bot status updates")
+    async def samosa(self, ctx, action: str, channel: discord.TextChannel = None):
+        """Enable bot status updates (every 30 min) or disable."""
+        if action.lower() == "botstatus":
+            channel_id = channel.id if channel else ctx.channel.id
+            guild_id = ctx.guild.id
+            astra_db_ops.save_bot_status_channel(guild_id, channel_id)
+            await ctx.send(f"✅ Bot status updates will be sent to <#{channel_id}> every 30 minutes.")
+            if not self.bot_status_task.is_running():
+                self.bot_status_task.start()
+        elif action.lower() == "disable":
+            guild_id = ctx.guild.id
+            astra_db_ops.save_bot_status_channel(guild_id, None)
+            await ctx.send("✅ Bot status updates have been disabled for this server.")
+
+    @app_commands.command(name="samosa", description="Check or enable bot status updates")
+    @app_commands.describe(action="Enable or disable bot status updates", channel="Select a channel (optional, defaults to current)")
+    @app_commands.choices(action=[
+        app_commands.Choice(name="Bot Status", value="botstatus"),
+        app_commands.Choice(name="Disable", value="disable")
+    ])
+    async def slash_samosa(self, interaction: discord.Interaction, action: str, channel: discord.TextChannel = None):
+        if action.lower() == "botstatus":
+            channel_id = channel.id if channel else interaction.channel.id
+            guild_id = interaction.guild_id
+            astra_db_ops.save_bot_status_channel(guild_id, channel_id)
+            await interaction.response.send_message(f"✅ Bot status updates will be sent to <#{channel_id}> every 30 minutes.")
+            if not self.bot_status_task.is_running():
+                self.bot_status_task.start()
+        elif action.lower() == "disable":
+            guild_id = interaction.guild_id
+            astra_db_ops.save_bot_status_channel(guild_id, None)
+            await interaction.response.send_message("✅ Bot status updates have been disabled for this server.")
+
+    @commands.command(name="listservers", description="List servers where the bot is registered")
+    async def list_servers(self, ctx):
+        """List all servers (guilds) where the bot is registered with installation dates."""
+        servers = astra_db_ops.list_registered_servers()
+        if servers:
+            response_lines = ["📜 **Registered Servers:**"]
+            for server in servers:
+                response_lines.append(
+                    f"**{server['guild_name']}** (ID: {server['guild_id']}), Installed: {server['installed_at']}"
+                )
+            await ctx.send("\n".join(response_lines))
+        else:
+            await ctx.send("No registered servers found.")
 
 async def setup(bot):
     """
