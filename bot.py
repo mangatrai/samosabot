@@ -646,6 +646,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
 
 # Wrap bot.run in a try-except block to handle unexpected crashes
 try:
+    keep_alive.init_reload(bot)  # Register /reload endpoint (developer only; requires RELOAD_SECRET)
     keep_alive.keep_alive()  # Start the background web server
     bot.run(TOKEN)
 except Exception as e:
