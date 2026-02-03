@@ -49,11 +49,13 @@ class ConfessionApprovalView(discord.ui.View):
     @discord.ui.button(label="✅ Approve", style=discord.ButtonStyle.success, custom_id="confession_approve")
     async def approve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Handle confession approval."""
+        await interaction.response.defer()
         await self.cog._do_approve(self.confession_id, self.guild_id, interaction)
     
     @discord.ui.button(label="❌ Reject", style=discord.ButtonStyle.danger, custom_id="confession_reject")
     async def reject_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Handle confession rejection."""
+        await interaction.response.defer()
         await self.cog._do_reject(self.confession_id, self.guild_id, interaction)
 
 
