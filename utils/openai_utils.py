@@ -8,7 +8,7 @@ function `generate_openai_response`, which supports three types of responses bas
               "isAllowed" (a boolean indicating whether the prompt is permitted) and "intent" (a string
               indicating the desired response type, either "text" or "image").
   - "text": Generates a text-based response to the given prompt.
-  - "image": Generates an image based on the prompt and returns the URL of the generated image.
+  - "image": Generates an image based on the prompt. Returns a URL (str) for DALL-E or image bytes (bytes) for GPT Image.
   - "verification": Generates verification questions for Discord server verification.
 
 The module automatically selects the appropriate model based on the intent:
@@ -36,6 +36,7 @@ Example Usage:
     questions = generate_openai_response("Generate 3 verification questions", intent="verification")
 """
 
+import base64
 import json
 import logging
 import os
@@ -47,10 +48,10 @@ from configs import prompts  # Ensure this module contains your ask_samosa_instr
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-IMAGE_GENERATION_MODEL = os.getenv("IMAGE_GENERATION_MODEL", "dall-e-3")
-TEXT_GENERATION_MODEL = os.getenv("TEXT_GENERATION_MODEL", "gpt-4o")
-INTENT_CHECK_MODEL = os.getenv("INTENT_CHECK_MODEL", "gpt-3.5-turbo")
-VERIFICATION_MODEL = os.getenv("VERIFICATION_MODEL", "gpt-3.5-turbo")
+IMAGE_GENERATION_MODEL = os.getenv("IMAGE_GENERATION_MODEL", "gpt-image-1-mini")
+TEXT_GENERATION_MODEL = os.getenv("TEXT_GENERATION_MODEL", "gpt-4o-mini")
+INTENT_CHECK_MODEL = os.getenv("INTENT_CHECK_MODEL", "gpt-4.1-nano")
+VERIFICATION_MODEL = os.getenv("VERIFICATION_MODEL", "gpt-4.1-nano")
 
 # Initialize OpenAI async client
 client = AsyncOpenAI(api_key=OPENAI_API_KEY)
@@ -70,7 +71,7 @@ async def generate_openai_response(prompt, intent="text", model=None):
 
     Returns:
       - If intent is "intent": a dict containing the keys "isAllowed" (bool) and "intent" (str).
-      - If intent is "image": a string containing the generated image URL.
+      - If intent is "image": a URL string (DALL-E) or image bytes (GPT Image).
       - If intent is "verification": a list of verification questions.
       - Otherwise (intent is "text"): a string containing the generated text.
       - On error, returns an error message (or a default dict for intent check).
@@ -111,15 +112,24 @@ async def generate_openai_response(prompt, intent="text", model=None):
 
         elif intent == "image":
             enhanced_prompt = f"{prompt}. Create a visually striking, highly detailed, and creatively composed image with vibrant colors and dynamic elements."
-            response = await client.images.generate(
-                model=model,
-                prompt=enhanced_prompt,
-                n=1,
-                size="1024x1024"
-            )
-            image_url = response.data[0].url
-            logging.debug(f"Generated image URL: {image_url}")
-            return image_url
+            # GPT Image models don't accept response_format; they return base64 by default. DALL-E uses url.
+            image_kwargs = {
+                "model": model,
+                "prompt": enhanced_prompt,
+                "n": 1,
+                "size": "1024x1024",
+            }
+            if not model.startswith("gpt-image"):
+                image_kwargs["response_format"] = "url"
+            response = await client.images.generate(**image_kwargs)
+            item = response.data[0]
+            if getattr(item, "url", None):
+                logging.debug(f"Generated image URL: {item.url}")
+                return item.url
+            if getattr(item, "b64_json", None):
+                logging.debug("Generated image (base64)")
+                return base64.b64decode(item.b64_json)
+            raise ValueError("Image response had no url or b64_json")
 
         elif intent == "verification":
             # Use the verification prompt from prompts module

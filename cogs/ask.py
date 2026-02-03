@@ -10,6 +10,7 @@ This updated version also preprocesses the user’s prompt to replace any user m
 corresponding display names. This works even if multiple users are mentioned in the prompt.
 """
 
+import io
 import re
 import discord
 from discord.ext import commands
@@ -138,24 +139,28 @@ class AskCog(commands.Cog):
 
             if response:
                 embed = discord.Embed()
-                if response.startswith("http"):
+                file = None
+                if isinstance(response, bytes):
+                    file = discord.File(io.BytesIO(response), filename="image.png")
+                    embed.set_image(url="attachment://image.png")
+                elif isinstance(response, str) and response.startswith("http"):
                     embed.set_image(url=response)
                 else:
                     embed.description = response
 
                 if isinstance(interaction, discord.Interaction):
-                    await interaction.followup.send(embed=embed)
+                    await interaction.followup.send(embed=embed, file=file)
                 else:
-                    await interaction.send(embed=embed)
+                    await interaction.send(embed=embed, file=file)
 
                 # Extract guild and channel info
                 guild_id = str(interaction.guild_id) if isinstance(interaction, discord.Interaction) and interaction.guild_id else (str(interaction.guild.id) if interaction.guild else None)
                 guild_name = interaction.guild.name if isinstance(interaction, discord.Interaction) and interaction.guild else (interaction.guild.name if interaction.guild else None)
                 username = interaction.user.display_name if isinstance(interaction, discord.Interaction) else interaction.author.display_name
                 channel_id = str(interaction.channel_id) if isinstance(interaction, discord.Interaction) and interaction.channel_id else (str(interaction.channel.id) if interaction.channel else None)
-                
+                log_response = "[image]" if isinstance(response, bytes) else response
                 increment_daily_request_count(user_id)  # Keep old call for /ask limit (no guild info)
-                insert_user_request(user_id, question, response, guild_id, guild_name, username, channel_id)
+                insert_user_request(user_id, question, log_response, guild_id, guild_name, username, channel_id)
             else:
                 # Functional error - failed to generate
                 await error_handler.handle_functional_error(
