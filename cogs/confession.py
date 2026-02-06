@@ -298,9 +298,12 @@ class ConfessionCog(commands.Cog):
             confession_text = confession.get("question", "")
             await self.post_confession_to_channel(confession_id, confession_text, confession_channel)
             msg = await get_interaction_message(interaction)
-            admin_embed = (msg.embeds[0] if msg and msg.embeds else discord.Embed())
-            admin_embed.color = discord.Color.green()
-            admin_embed.set_footer(text=f"✅ Approved by {interaction.user.display_name} | Confession ID: #{confession_id}")
+            # Replace embed with minimal outcome only (no confession text/submitter/scores left visible)
+            admin_embed = discord.Embed(
+                description=f"✅ Confession **#{confession_id}** was approved by {interaction.user.display_name}.",
+                color=discord.Color.green(),
+            )
+            admin_embed.set_footer(text=f"Confession ID: #{confession_id}")
             if interaction.response.is_done() and msg:
                 await msg.edit(embed=admin_embed, view=None)
             else:
@@ -339,9 +342,12 @@ class ConfessionCog(commands.Cog):
                 rejection_reason="Rejected by administrator"
             )
             msg = await get_interaction_message(interaction)
-            admin_embed = (msg.embeds[0] if msg and msg.embeds else discord.Embed())
-            admin_embed.color = discord.Color.red()
-            admin_embed.set_footer(text=f"❌ Rejected by {interaction.user.display_name} | Confession ID: #{confession_id}")
+            # Replace embed with minimal outcome only (no confession text/submitter/scores left visible)
+            admin_embed = discord.Embed(
+                description=f"❌ Confession **#{confession_id}** was rejected by {interaction.user.display_name}.",
+                color=discord.Color.red(),
+            )
+            admin_embed.set_footer(text=f"Confession ID: #{confession_id}")
             if interaction.response.is_done() and msg:
                 await msg.edit(embed=admin_embed, view=None)
             else:
@@ -519,6 +525,22 @@ class ConfessionCog(commands.Cog):
                     f"✅ Your confession #{confession_id} has been auto-approved and posted!",
                     ephemeral=True
                 )
+                
+                # Minimal notification in admin channel so admins know what happened
+                admin_channel_id = settings.get("confession_admin_channel_id")
+                if admin_channel_id:
+                    admin_channel = guild.get_channel(int(admin_channel_id))
+                    if admin_channel:
+                        score = sentiment_data.get("score", 0.0)
+                        try:
+                            auto_embed = discord.Embed(
+                                description=f"✅ Confession **#{confession_id}** with positive sentiment ({score:.1f}) was Auto Approved.",
+                                color=discord.Color.green(),
+                            )
+                            auto_embed.set_footer(text=f"Confession ID: #{confession_id}")
+                            await admin_channel.send(embed=auto_embed)
+                        except Exception as e:
+                            logging.warning(f"Failed to send auto-approve notification to admin channel: {e}")
             
             else:
                 # Queue for admin review
