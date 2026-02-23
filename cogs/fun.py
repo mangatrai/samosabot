@@ -5,6 +5,7 @@ Pickup lines, compliments, and fortune commands (RizzAPI + OpenAI fallback).
 """
 
 import os
+import random
 import logging
 import requests
 import discord
@@ -42,7 +43,8 @@ class FunCog(commands.Cog):
         async with ctx.typing():
             content = get_rizzapi_pickup()
             if content is None:
-                content = await openai_utils.generate_openai_response(pickup_prompt)
+                prompt = pickup_prompt + " Random variation: " + str(random.randint(1, 1000000))
+                content = await openai_utils.generate_openai_response(prompt)
             await ctx.send(f"💘 **Pick-up Line:** {content}")
 
     @commands.command(name="compliment", description="Generate a compliment")
@@ -67,7 +69,8 @@ class FunCog(commands.Cog):
         await interaction.response.defer()
         content = get_rizzapi_pickup()
         if content is None:
-            content = await openai_utils.generate_openai_response(pickup_prompt)
+            prompt = pickup_prompt + " Random variation: " + str(random.randint(1, 1000000))
+            content = await openai_utils.generate_openai_response(prompt)
         await interaction.followup.send(f"💘 **Pick-up Line:** {content}")
 
 

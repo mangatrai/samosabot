@@ -36,33 +36,29 @@ Respond in JSON format:
   "setup": "Setup sentence here",
   "punchline": "Punchline sentence here"
 }}
+"""
 
-Random variation: {random_number}"""
-
-joke_dad_prompt = f"""Generate a fresh, witty dad joke with creative wordplay. Avoid common jokes like scarecrow, bicycle, or atoms. Use unexpected topics and clever twists.
+joke_dad_prompt = """Generate a fresh, witty dad joke with creative wordplay. Avoid common jokes like scarecrow, bicycle, or atoms. Use unexpected topics and clever twists.
 
 Respond in JSON format:
 {{
   "setup": "Setup sentence here", 
   "punchline": "Punchline sentence here"
 }}
+"""
 
-Random variation: {random_number}"""
-
-joke_gen_prompt = f"""Generate a creative, unpredictable joke. Use diverse topics like technology, relationships, professions, or daily life. Avoid common jokes and ensure originality.
+joke_gen_prompt = """Generate a creative, unpredictable joke. Use diverse topics like technology, relationships, professions, or daily life. Avoid common jokes and ensure originality.
 
 Respond in JSON format:
 {{
   "setup": "Setup sentence here",
   "punchline": "Punchline sentence here"
 }}
+"""
 
-Random variation: {random_number}"""
-
-# Pickup prompt - Hybrid approach: simple but with creativity and variation
-pickup_prompt = f"""Generate a witty, creative pickup line. Use unexpected twists, clever wordplay, and creative metaphors. Vary topics and ensure originality.
-
-Random variation: {random_number}"""
+# Pickup prompt — variation injected per-request at call site
+pickup_prompt = """Generate a witty, creative pickup line. Use unexpected twists, clever wordplay, and creative metaphors. Vary topics and ensure originality.
+"""
 
 ask_samosa_instruction_prompt = (
     "Your job is to analyze the following prompt and determine two things. "
