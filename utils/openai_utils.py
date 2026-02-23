@@ -40,6 +40,7 @@ import base64
 import json
 import logging
 import os
+import random
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 from configs import prompts  # Ensure this module contains your ask_samosa_instruction_prompt
@@ -84,8 +85,31 @@ async def generate_openai_response(prompt, intent="text", model=None):
                 model = IMAGE_GENERATION_MODEL
             elif intent == "verification":
                 model = VERIFICATION_MODEL
+            elif intent == "qotd":
+                model = TEXT_GENERATION_MODEL
             else:
                 model = TEXT_GENERATION_MODEL
+
+        if intent == "qotd":
+            # Same idea as truth prompt: short system, clear constraint. Avoid overusing "If you could X, what would you Y and why?"
+            system = (
+                "You generate one short discussion question for a Discord server. "
+                "Output only the question, nothing else. Keep it under 15 words. "
+                "Use both direct questions (What's your...? Who...?) and hypotheticals (If you...?)."
+            )
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.8,
+                max_tokens=80,
+                seed=random.randint(1, 2**31 - 1),
+            )
+            generated_text = response.choices[0].message.content.strip()
+            logging.debug(f"QOTD AI response: {generated_text}")
+            return generated_text
 
         if intent == "intent":
             # Perform intent and safety check using the instruction prompt from prompts module.
@@ -176,7 +200,8 @@ async def generate_openai_response(prompt, intent="text", model=None):
                     ],
                 temperature=0.9,
                 top_p=0.9,
-                max_tokens=1000
+                max_tokens=1000,
+                seed=random.randint(1, 2**31 - 1),
             )
             generated_text = response.choices[0].message.content.strip()
             logging.debug(f"Generated text: {generated_text}")

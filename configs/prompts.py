@@ -21,13 +21,11 @@ verification_prompt = (
     f"Here is a random number to force variation: {random_number}. Do not include this number in your response."
 )
 
-# QOTD prompt
+# QOTD prompt — seed injected per-request in cog (no module-level random here)
 qotd_prompt = (
-    f"Generate a concise, engaging, unpredictable, and quirky single-sentence Question of the Day for a Discord server. "
-    "The question should be thought-provoking yet humorous and silly, sparking lively group discussions, but keep it short—ideally under 20 words."
-    "Avoid starting with phrases like 'Question of the Day' and do not reference the random number. "
-    "For example: 'If animals could talk, which species would be the sassiest?' "
-    f"Here is a random number to force variation: {random_number}. Do not include this number in your final response."
+    "Generate a fun, engaging discussion question for a Discord server. "
+    "Keep it under 15 words. Mix direct questions and hypotheticals; do not repeat the same theme. "
+    "Examples: 'What's the best book you read recently?' 'If you were a candy bar, which would you be?' 'Who is a stranger you will never forget?' "
 )
 
 #jokes prompt - Hybrid approach: simple but with variation and creativity instructions
