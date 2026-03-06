@@ -48,6 +48,7 @@ from configs.version import __version__
 load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 PREFIX = os.getenv("BOT_PREFIX", "!")  # Default prefix if not set
+ENABLE_FLASK = os.getenv("ENABLE_FLASK", "false").lower() in ("true", "1", "yes")
 
 EXTENSIONS = os.getenv("EXTENSIONS", "").split(",")
 
@@ -370,8 +371,9 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
 
 # Wrap bot.run in a try-except block to handle unexpected crashes
 try:
-    keep_alive.init_reload(bot)  # Register /reload endpoint (developer only; requires RELOAD_SECRET)
-    keep_alive.keep_alive()  # Start the background web server
+    if ENABLE_FLASK:
+        keep_alive.init_reload(bot)  # Register /reload endpoint (developer only; requires RELOAD_SECRET)
+        keep_alive.keep_alive()  # Start the background web server
     bot.run(TOKEN)
 except Exception as e:
     logging.error(f"[ERROR] Bot encountered an unexpected issue: {e}")
