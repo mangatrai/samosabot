@@ -257,3 +257,113 @@ Dual enforcement in `utils/throttle.py`: minimum gap between commands + max per 
 - The `/reload` Flask endpoint is protected by `RELOAD_SECRET` but should not be exposed publicly.
 - Admin commands check for guild permissions before executing.
 - AI requests go through an intent/safety check before processing.
+
+---
+
+## Database Migration: AstraDB → MongoDB Atlas
+
+**Status: Migration tool built. Bot dual-DB refactoring not yet started.**
+
+AstraDB free tier is being discontinued. The plan is to migrate to **MongoDB Atlas M0 (free forever, 512MB)** while keeping the AstraDB code path intact via a `DATABASE_PROVIDER` env var.
+
+### Why MongoDB Atlas
+
+- M0 free tier is permanent, not a trial
+- AstraDB's Document API is MongoDB-compatible — every operator used (`$set`, `$inc`, `$push`, `$exists`, `$ne`, upsert, sort, limit, skip) is native MongoDB
+- `pymongo` Collection API is nearly identical to `astrapy`'s, so `astra_db_ops.py` requires minimal changes
+- Eliminates AstraDB workarounds: `get_truth_dare_message_metadata` currently fetches all docs and filters in Python because AstraDB lacks `$elemMatch` support — pymongo supports it natively
+
+### astrapy Operations Inventory (what needs to be replicated)
+
+All operations are in `utils/astra_db_ops.py`. The full API surface used:
+
+| Operation | astrapy call | pymongo equivalent |
+|---|---|---|
+| Find all | `collection.find({})` | identical |
+| Find with filter | `collection.find(filter)` | identical |
+| Find sorted+paginated | `collection.find(filter, sort={...}, limit=N, skip=N)` | identical |
+| Find one | `collection.find_one(filter)` | identical |
+| Insert one | `collection.insert_one(document)` | identical |
+| Update one (upsert) | `collection.update_one(filter, {$set/$inc}, upsert=True)` | identical |
+| Find+update (upsert) | `collection.find_one_and_update(filter, update, upsert=True)` | identical |
+| Find+update+return | `find_one_and_update(..., return_document="after")` | `return_document=pymongo.ReturnDocument.AFTER` |
+| Delete one | `collection.delete_one(filter)` | identical |
+| Delete many | `collection.delete_many(filter={})` | identical |
+| Collection info | `collection.info().name` | remove — used only in debug logs |
+
+**Only two actual code changes needed in `astra_db_ops.py`:**
+1. `return_document="after"` → `return_document=pymongo.ReturnDocument.AFTER` (in `get_next_confession_id`, line ~956)
+2. `collection.info().name` → replace with literal name string (in each collection-getter function, debug log only)
+
+### Collections
+
+| Collection | Purpose | Key query fields |
+|---|---|---|
+| `registered_servers` | Guild metadata + confession settings | `guild_id` |
+| `user_requests` | Ask command logs + confessions | `user_id`, `guild_id`, `request_type`, `confession_id` |
+| `daily_counters` | Per-user daily request tracking | `user_id`, `date`, `guild_id` |
+| `trivia_leaderboard` | User trivia scores | `user_id`, sort by `total_correct` |
+| `truth_dare_questions` | Community T/D questions | `type`, `rating`, `approved`, `_id` |
+| `qotd_channels` | QOTD channel config per guild | `guild_id` |
+| `bot_status_channels` | Status update channel per guild | `guild_id` |
+| `verification_attempts` | Verification audit log | `user_id`, `guild_id` |
+| `guild_verification_settings` | Per-guild verification config | `guild_id` |
+| `active_verifications` | In-progress verification sessions | `user_id`, `guild_id` |
+
+### Migration Tool (`tools/db_migrate.py`)
+
+Standalone interactive script — does NOT depend on the bot's runtime `db_connection.py`.
+
+```bash
+cd /path/to/discord
+python tools/db_migrate.py
+```
+
+**Actions:**
+1. **Export** — dumps collections to `migration_export/<YYYY-MM-DD_HHMMSS>/` as JSON files + `_meta.json`
+2. **Import** — loads from a local export directory into a target DB; prompts for conflict resolution (skip/overwrite/abort)
+3. **Migrate** — export + schema creation + import in one flow
+4. **Schema** — creates collections/indexes on target without moving data
+
+**Provider extensibility:** `DatabaseProvider` ABC in `tools/db_migrate.py`. Add a new provider by subclassing it and adding one entry to the `PROVIDERS` dict.
+
+**`_id` handling:** Preserved across export/import. AstraDB UUIDs stay as strings. MongoDB ObjectIds are serialized as hex strings on export and reconstructed as `ObjectId` on MongoDB import.
+
+**Exports location:** `migration_export/` at project root (git-ignored).
+
+**Env vars read by the tool:**
+- AstraDB: `ASTRA_API_ENDPOINT`, `ASTRA_API_TOKEN`, `ASTRA_NAMESPACE`
+- MongoDB: `MONGODB_URI`, `MONGODB_DB_NAME` (default: `samosabot`)
+- If not set via Doppler/env, the tool prompts interactively.
+
+### Bot Dual-DB Refactoring Plan (not yet started)
+
+**Step 1 — Abstraction layer (no logic changes)**
+- Rename `utils/db_connection.py` → `utils/db_connection_astra.py` (keep as-is)
+- Create `utils/db_connection_mongodb.py` — reads `MONGODB_URI`, returns pymongo database object
+- Rewrite `utils/db_connection.py` as factory: reads `DATABASE_PROVIDER`, delegates to correct module
+
+**Step 2 — Fix two divergent lines in `astra_db_ops.py`**
+- `return_document="after"` → `return_document=pymongo.ReturnDocument.AFTER`
+- `collection.info().name` calls → remove or replace with string literal
+
+**Step 3 — Collection setup for MongoDB path**
+- pymongo creates collections implicitly on first insert — no explicit creation needed
+- Create indexes for query performance: `guild_id`, `user_id`, `(user_id, date)` for daily_counters, `(confession_id, guild_id)` for user_requests
+- Update or add a MongoDB-specific version of `astra_create_collection.py` that creates indexes instead
+
+**Step 4 — Env var additions (add to Doppler)**
+```
+DATABASE_PROVIDER=ASTRA          # switch to MONGODB when ready
+MONGODB_URI=mongodb+srv://...    # Atlas connection string
+```
+
+**Step 5 — Data migration**
+- Export all collections from AstraDB as JSON
+- Import into Atlas using `mongoimport`
+- Flip `DATABASE_PROVIDER=MONGODB` in Doppler, deploy, verify
+- Keep `ASTRA` path intact as rollback
+
+**Step 6 — Optional cleanup**
+- After MongoDB is stable, can remove astrapy code path and `astrapy` from `requirements.txt`
+- Replace `get_truth_dare_message_metadata` Python-side filtering with proper `$elemMatch` query
