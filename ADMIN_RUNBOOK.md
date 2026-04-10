@@ -25,7 +25,7 @@
 | Requirement | Notes |
 |---|---|
 | Python 3.13+ | Managed via `.python-version` file |
-| `uv` (package manager) | Venv lives at `/Users/mrai/.uv/venvs/discord/` |
+| `uv` (package manager) | Used to manage the project venv |
 | Discord account + Developer access | [discord.com/developers](https://discord.com/developers) |
 | OpenAI API account | For AI commands (ask, roast, fortune, etc.) |
 | Database account | AstraDB **or** MongoDB Atlas (see §3) |
@@ -100,7 +100,7 @@ The bot supports **AstraDB** (original) and **MongoDB Atlas** (recommended repla
 
 **Create collections and indexes** (one-time, after env vars are configured):
 ```bash
-source /Users/mrai/.uv/venvs/discord/bin/activate
+source venv/bin/activate
 python tools/db_migrate.py
 # Choose: 4 (Schema — create collections / indexes only)
 # Choose: 2 (MongoDB Atlas)
@@ -118,7 +118,7 @@ python tools/db_migrate.py
 
 **Create collections** (one-time):
 ```bash
-source /Users/mrai/.uv/venvs/discord/bin/activate
+source venv/bin/activate
 cd utils
 python astra_create_collection.py
 ```
@@ -195,9 +195,18 @@ To disable a feature, remove its entry from this list. The bot will start withou
 
 ### 5.1 Install dependencies
 
+If you haven't created a venv yet:
 ```bash
-cd /Users/mrai/datastax/codesample/discord
-source /Users/mrai/.uv/venvs/discord/bin/activate
+cd /path/to/samosabot
+uv venv venv          # creates venv/ in the project root
+source venv/bin/activate
+uv pip install -r requirements.txt
+```
+
+If the venv already exists:
+```bash
+cd /path/to/samosabot
+source venv/bin/activate
 uv pip install -r requirements.txt
 ```
 
@@ -360,7 +369,7 @@ Requires `ENABLE_FLASK=true` and `RELOAD_SECRET` to be set. The bot must be runn
 Reload a single cog:
 
 ```bash
-source /Users/mrai/.uv/venvs/discord/bin/activate
+source venv/bin/activate
 python utils/reload_extension.py cogs.confession
 ```
 
@@ -377,7 +386,7 @@ This reloads the code and re-syncs slash commands to Discord in the background. 
 ### 8.4 Update dependencies
 
 ```bash
-source /Users/mrai/.uv/venvs/discord/bin/activate
+source venv/bin/activate
 uv pip install -r requirements.txt --upgrade
 # Test locally, then commit requirements.txt if versions changed
 git push heroku main
@@ -451,7 +460,7 @@ python tools/db_migrate.py
 Wipes all documents from a single collection. Use only in dev/testing:
 
 ```bash
-source /Users/mrai/.uv/venvs/discord/bin/activate
+source venv/bin/activate
 cd tests
 python clean_collection_data.py <collection_name>
 # e.g. python clean_collection_data.py trivia_leaderboard
