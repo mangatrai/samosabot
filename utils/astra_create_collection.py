@@ -16,7 +16,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 def _get_existing_collection_names(database) -> list:
     """Return names of all existing collections in the database."""
     try:
-        return [c.name for c in database.list_collections()]
+        # list_collection_names() uses the Data API and works with regular
+        # application tokens. list_collections() returns descriptors but
+        # list_collection_names() is simpler and available in astrapy v2+.
+        return database.list_collection_names()
     except Exception as e:
         logging.warning(f"Could not list existing collections: {e}")
         return []

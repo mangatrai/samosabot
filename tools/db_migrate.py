@@ -26,6 +26,7 @@ Metadata          → _meta.json  (timestamp, provider, record counts)
 """
 
 import datetime
+import getpass
 import json
 import logging
 import os
@@ -149,13 +150,15 @@ class AstraProvider(DatabaseProvider):
             return False
         try:
             endpoint = _prompt_env("ASTRA_API_ENDPOINT", "AstraDB endpoint URL")
-            token = _prompt_env("ASTRA_API_TOKEN", "AstraDB token")
+            token = _prompt_env("ASTRA_API_TOKEN", "AstraDB token", sensitive=True)
             namespace = os.getenv("ASTRA_NAMESPACE", "default_keyspace")
             client = DataAPIClient(token)
             self._db = client.get_database(endpoint, keyspace=namespace)
-            # Trigger a real network call to verify credentials
-            db_name = self._db.info().name
-            print(f"  Connected to AstraDB: {db_name}  (keyspace: {namespace})")
+            # Verify with list_collection_names() — uses the Data API (same as all
+            # regular operations). Avoid info() which uses the Admin DevOps API and
+            # fails with regular application tokens.
+            self._db.list_collection_names()
+            print(f"  Connected to AstraDB  (keyspace: {namespace})")
             return True
         except Exception as e:
             print(f"  ERROR connecting to AstraDB: {e}")
@@ -165,24 +168,27 @@ class AstraProvider(DatabaseProvider):
         return self._db.get_collection(name)
 
     def create_schema(self, collections: list) -> dict:
-        existing = self.list_existing_collections()
         results = {}
         for name in collections:
             try:
-                if name in existing:
-                    print(f"  [SKIP] {name} — already exists")
-                else:
-                    self._db.create_collection(name)
-                    print(f"  [OK]   {name} — created")
+                self._db.create_collection(name)
+                print(f"  [OK]   {name} — created")
                 results[name] = True
             except Exception as e:
-                print(f"  [FAIL] {name} — {e}")
-                results[name] = False
+                # astrapy raises an exception when the collection already exists;
+                # treat that as success rather than a failure.
+                err = str(e).lower()
+                if "already exist" in err or "existing" in err or "already" in err:
+                    print(f"  [SKIP] {name} — already exists")
+                    results[name] = True
+                else:
+                    print(f"  [FAIL] {name} — {e}")
+                    results[name] = False
         return results
 
     def list_existing_collections(self) -> list:
         try:
-            return [c.name for c in self._db.list_collections()]
+            return self._db.list_collection_names()
         except Exception:
             return []
 
@@ -205,7 +211,7 @@ class MongoDBProvider(DatabaseProvider):
             print("  ERROR: pymongo not installed. Run: pip install pymongo")
             return False
         try:
-            uri = _prompt_env("MONGODB_URI", "MongoDB URI (mongodb+srv://...)")
+            uri = _prompt_env("MONGODB_URI", "MongoDB URI (mongodb+srv://...)", sensitive=True)
             db_name = os.getenv("MONGODB_DB_NAME", "samosabot")
             self._client = pymongo.MongoClient(uri, serverSelectionTimeoutMS=8000)
             # Trigger a real network call to verify credentials
@@ -439,12 +445,16 @@ def import_data(provider: DatabaseProvider, collections: list,
 # CLI helpers
 # ---------------------------------------------------------------------------
 
-def _prompt_env(env_key: str, label: str) -> str:
-    """Return env var value, or interactively prompt if not set."""
+def _prompt_env(env_key: str, label: str, sensitive: bool = False) -> str:
+    """Return env var value, or interactively prompt if not set.
+    Use sensitive=True for tokens/passwords — input will be masked."""
     val = os.getenv(env_key, "").strip()
     if val:
         return val
-    val = input(f"    Enter {label} [{env_key}]: ").strip()
+    if sensitive:
+        val = getpass.getpass(f"    Enter {label} [{env_key}]: ")
+    else:
+        val = input(f"    Enter {label} [{env_key}]: ").strip()
     if not val:
         raise ValueError(f"Missing required value: {label}")
     return val
