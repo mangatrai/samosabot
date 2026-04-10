@@ -262,7 +262,7 @@ Dual enforcement in `utils/throttle.py`: minimum gap between commands + max per 
 
 ## Database Migration: AstraDB → MongoDB Atlas
 
-**Status: Migration tool built. Bot dual-DB refactoring not yet started.**
+**Status: COMPLETE. Both migration tool and bot dual-provider support are implemented.**
 
 AstraDB free tier is being discontinued. The plan is to migrate to **MongoDB Atlas M0 (free forever, 512MB)** while keeping the AstraDB code path intact via a `DATABASE_PROVIDER` env var.
 
@@ -273,27 +273,21 @@ AstraDB free tier is being discontinued. The plan is to migrate to **MongoDB Atl
 - `pymongo` Collection API is nearly identical to `astrapy`'s, so `astra_db_ops.py` requires minimal changes
 - Eliminates AstraDB workarounds: `get_truth_dare_message_metadata` currently fetches all docs and filters in Python because AstraDB lacks `$elemMatch` support — pymongo supports it natively
 
-### astrapy Operations Inventory (what needs to be replicated)
+### Bot Dual-Provider Architecture (implemented)
 
-All operations are in `utils/astra_db_ops.py`. The full API surface used:
+**Key files:**
 
-| Operation | astrapy call | pymongo equivalent |
-|---|---|---|
-| Find all | `collection.find({})` | identical |
-| Find with filter | `collection.find(filter)` | identical |
-| Find sorted+paginated | `collection.find(filter, sort={...}, limit=N, skip=N)` | identical |
-| Find one | `collection.find_one(filter)` | identical |
-| Insert one | `collection.insert_one(document)` | identical |
-| Update one (upsert) | `collection.update_one(filter, {$set/$inc}, upsert=True)` | identical |
-| Find+update (upsert) | `collection.find_one_and_update(filter, update, upsert=True)` | identical |
-| Find+update+return | `find_one_and_update(..., return_document="after")` | `return_document=pymongo.ReturnDocument.AFTER` |
-| Delete one | `collection.delete_one(filter)` | identical |
-| Delete many | `collection.delete_many(filter={})` | identical |
-| Collection info | `collection.info().name` | remove — used only in debug logs |
+| File | Role |
+|---|---|
+| `utils/db_connection.py` | Factory — reads `DATABASE_PROVIDER`, delegates to correct module |
+| `utils/db_connection_astra.py` | AstraDB connection via `astrapy` |
+| `utils/db_connection_mongodb.py` | MongoDB connection via `pymongo` + `MongoCollectionAdapter` + `MongoDatabaseAdapter` |
+| `utils/astra_db_ops.py` | All DB operations — provider-agnostic, unchanged except debug logs |
 
-**Only two actual code changes needed in `astra_db_ops.py`:**
-1. `return_document="after"` → `return_document=pymongo.ReturnDocument.AFTER` (in `get_next_confession_id`, line ~956)
-2. `collection.info().name` → replace with literal name string (in each collection-getter function, debug log only)
+**Adapter pattern:** `MongoCollectionAdapter` in `db_connection_mongodb.py` absorbs all API differences between astrapy and pymongo:
+- `find(sort=dict, limit=N, skip=N)` kwargs → cursor chaining
+- `return_document="after"` string → `ReturnDocument.AFTER` constant
+- All other methods pass through unchanged (identical signatures)
 
 ### Collections
 
@@ -336,34 +330,13 @@ python tools/db_migrate.py
 - MongoDB: `MONGODB_URI`, `MONGODB_DB_NAME` (default: `samosabot`)
 - If not set via Doppler/env, the tool prompts interactively.
 
-### Bot Dual-DB Refactoring Plan (not yet started)
-
-**Step 1 — Abstraction layer (no logic changes)**
-- Rename `utils/db_connection.py` → `utils/db_connection_astra.py` (keep as-is)
-- Create `utils/db_connection_mongodb.py` — reads `MONGODB_URI`, returns pymongo database object
-- Rewrite `utils/db_connection.py` as factory: reads `DATABASE_PROVIDER`, delegates to correct module
-
-**Step 2 — Fix two divergent lines in `astra_db_ops.py`**
-- `return_document="after"` → `return_document=pymongo.ReturnDocument.AFTER`
-- `collection.info().name` calls → remove or replace with string literal
-
-**Step 3 — Collection setup for MongoDB path**
-- pymongo creates collections implicitly on first insert — no explicit creation needed
-- Create indexes for query performance: `guild_id`, `user_id`, `(user_id, date)` for daily_counters, `(confession_id, guild_id)` for user_requests
-- Update or add a MongoDB-specific version of `astra_create_collection.py` that creates indexes instead
-
-**Step 4 — Env var additions (add to Doppler)**
+**Env vars required (add to Doppler):**
 ```
-DATABASE_PROVIDER=ASTRA          # switch to MONGODB when ready
-MONGODB_URI=mongodb+srv://...    # Atlas connection string
+DATABASE_PROVIDER=ASTRA          # or MONGODB
+MONGODB_URI=mongodb+srv://...    # required when DATABASE_PROVIDER=MONGODB
+MONGODB_DB_NAME=samosabot        # optional, default: samosabot
 ```
 
-**Step 5 — Data migration**
-- Export all collections from AstraDB as JSON
-- Import into Atlas using `mongoimport`
-- Flip `DATABASE_PROVIDER=MONGODB` in Doppler, deploy, verify
-- Keep `ASTRA` path intact as rollback
+**Switching providers:** Change `DATABASE_PROVIDER` in Doppler and restart the bot. AstraDB credentials can remain set — they are ignored when `DATABASE_PROVIDER=MONGODB`.
 
-**Step 6 — Optional cleanup**
-- After MongoDB is stable, can remove astrapy code path and `astrapy` from `requirements.txt`
-- Replace `get_truth_dare_message_metadata` Python-side filtering with proper `$elemMatch` query
+**Optional future cleanup:** `get_truth_dare_message_metadata` in `astra_db_ops.py` fetches all docs with `message_metadata` and filters in Python (AstraDB lacks `$elemMatch`). When running on MongoDB this can be rewritten to use `$elemMatch` for better performance. Not urgent.
