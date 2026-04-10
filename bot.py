@@ -71,7 +71,6 @@ joke_gen_prompt = prompts.joke_gen_prompt
 
 @bot.event
 async def on_ready():
-    await bot.wait_until_ready()  # Ensure bot is fully ready before proceeding
     logging.info(f"🤖 SamosaBot Version: {__version__}")
     logging.info(f'Logged in as {bot.user}')
 
