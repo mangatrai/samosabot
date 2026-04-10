@@ -64,9 +64,6 @@ tree = bot.tree
 # First user heuristic tracking
 newly_joined_guilds = set()  # Track guilds that just joined for first user detection
 
-# Global dictionary to track user command timestamps
-user_command_timestamps = {}
-
 # Prompts loading (used by bot.py commands)
 joke_insult_prompt = prompts.joke_insult_prompt
 joke_dad_prompt = prompts.joke_dad_prompt
@@ -180,7 +177,7 @@ def extract_guild_metadata(guild: discord.Guild):
             owner = guild.get_member(guild.owner_id)
             if owner:
                 owner_name = owner.display_name
-        except:
+        except Exception:
             pass
     
     # Get server creation date
