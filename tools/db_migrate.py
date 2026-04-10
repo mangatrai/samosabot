@@ -212,7 +212,7 @@ class MongoDBProvider(DatabaseProvider):
             return False
         try:
             uri = _prompt_env("MONGODB_URI", "MongoDB URI (mongodb+srv://...)", sensitive=True)
-            db_name = os.getenv("MONGODB_DB_NAME", "samosabot")
+            db_name = _prompt_env("MONGODB_DB_NAME", "database name", default="samosabot")
             self._client = pymongo.MongoClient(uri, serverSelectionTimeoutMS=8000)
             # Trigger a real network call to verify credentials
             self._client.server_info()
@@ -445,17 +445,22 @@ def import_data(provider: DatabaseProvider, collections: list,
 # CLI helpers
 # ---------------------------------------------------------------------------
 
-def _prompt_env(env_key: str, label: str, sensitive: bool = False) -> str:
+def _prompt_env(env_key: str, label: str, sensitive: bool = False,
+                default: str = None) -> str:
     """Return env var value, or interactively prompt if not set.
-    Use sensitive=True for tokens/passwords — input will be masked."""
+    Use sensitive=True for tokens/passwords — input will be masked.
+    Use default to allow the user to press Enter and accept a fallback value."""
     val = os.getenv(env_key, "").strip()
     if val:
         return val
+    hint = f" (default: {default})" if default else ""
     if sensitive:
-        val = getpass.getpass(f"    Enter {label} [{env_key}]: ")
+        val = getpass.getpass(f"    Enter {label}{hint} [{env_key}]: ")
     else:
-        val = input(f"    Enter {label} [{env_key}]: ").strip()
+        val = input(f"    Enter {label}{hint} [{env_key}]: ").strip()
     if not val:
+        if default is not None:
+            return default
         raise ValueError(f"Missing required value: {label}")
     return val
 
