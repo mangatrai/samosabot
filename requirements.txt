@@ -3,6 +3,7 @@ openai
 python-dotenv
 flask
 astrapy
+pymongo
 requests
 Pillow
 vaderSentiment>=3.3.2
