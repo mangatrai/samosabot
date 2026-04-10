@@ -381,7 +381,7 @@ python utils/reload_extension.py all
 
 This reloads the code and re-syncs slash commands to Discord in the background. Useful for pushing confession or trivia fixes without taking the bot offline.
 
-> Hot-reload only works on locally-running bots or if you expose the Flask endpoint. On Heroku you'd need to curl the endpoint directly: `curl "https://your-app.herokuapp.com/reload?cog=all&secret=YOUR_SECRET"`
+> Hot-reload only works on locally-running bots or if you expose the Flask endpoint. On Heroku you'd need to curl the endpoint directly: `curl -H "X-Reload-Secret: YOUR_SECRET" "https://your-app.herokuapp.com/reload?cog=all"`
 
 ### 8.4 Update dependencies
 

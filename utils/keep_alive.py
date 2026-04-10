@@ -26,9 +26,9 @@ def home():
 
 @app.route('/reload', methods=["GET", "POST"])
 def reload_extensions():
-    """Reload one cog or all. Query params: cog=<name or 'all'>, secret=<RELOAD_SECRET>. Developer only."""
+    """Reload one cog or all. Header: X-Reload-Secret. Query param: cog=<name or 'all'>. Developer only."""
     secret = os.getenv("RELOAD_SECRET")
-    if not secret or secret != request.args.get("secret"):
+    if not secret or secret != request.headers.get("X-Reload-Secret"):
         return jsonify({"ok": False, "error": "Forbidden"}), 403
     cog = request.args.get("cog")
     if not cog:

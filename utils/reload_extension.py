@@ -33,10 +33,11 @@ def main():
         print("Error: RELOAD_SECRET not set in env or .env")
         sys.exit(1)
     url = f"{RELOAD_URL}/reload"
-    params = {"cog": cog, "secret": RELOAD_SECRET}
+    params = {"cog": cog}
+    headers = {"X-Reload-Secret": RELOAD_SECRET}
     # Timeout allows "reload all" to finish; tree.sync runs in background and does not block
     try:
-        r = requests.get(url, params=params, timeout=90)
+        r = requests.get(url, params=params, headers=headers, timeout=90)
     except requests.RequestException as e:
         print(f"Request failed: {e}")
         sys.exit(1)
