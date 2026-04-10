@@ -1,9 +1,10 @@
 """
-AstraDB Operations Module
+Database Operations Module
 
-This module provides a suite of functions for interacting with AstraDB using the astrapy library.
-It handles database connectivity, collection management, and data operations essential for the
-Discord bot's functionality. Key features include:
+This module provides a suite of functions for all database interactions used by the bot.
+It is provider-agnostic: the active provider (AstraDB or MongoDB Atlas) is determined by
+the DATABASE_PROVIDER env var and resolved transparently via db_connection.py.
+Key features include:
 
   - Establishing a connection to AstraDB using configuration parameters (API endpoint, namespace, and token)
     loaded from environment variables.
@@ -32,7 +33,7 @@ def get_qotd_channels_collection():
         return None
     try:
         collection = database.get_collection("qotd_channels")
-        logging.debug(f"Retrieved qotd_channels collection: {collection.info().name}")
+        logging.debug("Retrieved qotd_channels collection")
         return collection
     except Exception as e:
         logging.error(f"[ERROR] Failed to retrieve qotd_channels collection: {e}")
@@ -45,7 +46,7 @@ def get_bot_status_channels_collection():
         return None
     try:
         collection = database.get_collection("bot_status_channels")
-        logging.debug(f"Retrieved bot_status_channels collection: {collection.info().name}")
+        logging.debug("Retrieved bot_status_channels collection")
         return collection
     except Exception as e:
         logging.error(f"[ERROR] Failed to retrieve bot_status_channels collection: {e}")
@@ -58,7 +59,7 @@ def get_trivia_leaderboard_collection():
         return None
     try:
         collection = database.get_collection("trivia_leaderboard")
-        logging.debug(f"Retrieved trivia_leaderboard collection: {collection.info().name}")
+        logging.debug("Retrieved trivia_leaderboard collection")
         return collection
     except Exception as e:
         logging.error(f"[ERROR] Failed to retrieve trivia_leaderboard collection: {e}")
@@ -71,7 +72,7 @@ def get_user_requests_collection():
         return None
     try:
         collection = database.get_collection("user_requests")
-        logging.debug(f"Retrieved user_requests collection: {collection.info().name}")
+        logging.debug("Retrieved user_requests collection")
         return collection
     except Exception as e:
         logging.error(f"[ERROR] Failed to retrieve user_requests collection: {e}")
@@ -83,7 +84,7 @@ def get_daily_counters_collection():
         return None
     try:
         collection = database.get_collection("daily_counters")
-        logging.debug(f"Retrieved daily_counters collection: {collection.info().name}")
+        logging.debug("Retrieved daily_counters collection")
         return collection
     except Exception as e:
         logging.error(f"[ERROR] Failed to retrieve daily_counters collection: {e}")
@@ -95,7 +96,7 @@ def get_registered_servers_collection():
         return None
     try:
         collection = database.get_collection("registered_servers")
-        logging.debug(f"Retrieved registered_servers collection: {collection.info().name}")
+        logging.debug("Retrieved registered_servers collection")
         return collection
     except Exception as e:
         logging.error(f"Failed to retrieve registered_servers collection: {e}")
@@ -108,7 +109,7 @@ def get_verification_attempts_collection():
         return None
     try:
         collection = database.get_collection("verification_attempts")
-        logging.debug(f"Retrieved verification_attempts collection: {collection.info().name}")
+        logging.debug("Retrieved verification_attempts collection")
         return collection
     except Exception as e:
         logging.error(f"Failed to retrieve verification_attempts collection: {e}")
@@ -121,7 +122,7 @@ def get_guild_verification_settings_collection():
         return None
     try:
         collection = database.get_collection("guild_verification_settings")
-        logging.debug(f"Retrieved guild_verification_settings collection: {collection.info().name}")
+        logging.debug("Retrieved guild_verification_settings collection")
         return collection
     except Exception as e:
         logging.error(f"Failed to retrieve guild_verification_settings collection: {e}")
@@ -656,7 +657,7 @@ def get_active_verifications_collection():
         return None
     try:
         collection = database.get_collection("active_verifications")
-        logging.debug(f"Retrieved active_verifications collection: {collection.info().name}")
+        logging.debug("Retrieved active_verifications collection")
         return collection
     except Exception as e:
         logging.error(f"[ERROR] Failed to retrieve active_verifications collection: {e}")
@@ -794,7 +795,7 @@ def get_truth_dare_questions_collection():
         return None
     try:
         collection = database.get_collection("truth_dare_questions")
-        logging.debug(f"Retrieved truth_dare_questions collection: {collection.info().name}")
+        logging.debug("Retrieved truth_dare_questions collection")
         return collection
     except Exception as e:
         logging.error(f"Failed to retrieve truth_dare_questions collection: {e}")
