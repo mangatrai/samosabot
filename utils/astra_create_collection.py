@@ -13,6 +13,14 @@ from db_connection import get_db_connection, ASTRA_NAMESPACE
 # Add the parent directory to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+def _get_existing_collection_names(database) -> list:
+    """Return names of all existing collections in the database."""
+    try:
+        return [c.name for c in database.list_collections()]
+    except Exception as e:
+        logging.warning(f"Could not list existing collections: {e}")
+        return []
+
 def create_collection(collection_name: str):
     """Create a single collection in AstraDB if it doesn't exist."""
     try:
@@ -20,16 +28,14 @@ def create_collection(collection_name: str):
         if database is None:
             return False
 
-        # Check if collection exists first
-        try:
-            existing_collection = database.get_collection(collection_name)
-            logging.info(f"Collection '{collection_name}' already exists")
+        # list_collections() is the correct way to check existence.
+        # get_collection() never raises even if the collection is missing,
+        # so it cannot be used as an existence check.
+        existing = _get_existing_collection_names(database)
+        if collection_name in existing:
+            logging.info(f"Collection '{collection_name}' already exists — skipping")
             return True
-        except:
-            # Collection doesn't exist, create it
-            pass
-        
-        # Create collection
+
         database.create_collection(
             name=collection_name,
             keyspace=ASTRA_NAMESPACE
@@ -61,8 +67,8 @@ def create_verification_collections():
     """Create collections related to Verification system."""
     collections = [
         "verification_attempts",
-        "role_changes",
-        "guild_verification_settings"
+        "guild_verification_settings",
+        "active_verifications",   # tracks in-progress verification sessions
     ]
     for collection in collections:
         create_collection(collection)
