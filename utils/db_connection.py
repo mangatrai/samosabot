@@ -1,41 +1,40 @@
 """
-Database Connection Module
+Database Connection Factory
 
-This module provides a centralized way to establish and manage connections to AstraDB.
-It handles the connection setup using environment variables and provides a single point
-of access for database operations.
+Returns a database connection for the configured provider.
+Set DATABASE_PROVIDER env var to select the backend:
+
+  DATABASE_PROVIDER=ASTRA    (default) — AstraDB via astrapy
+  DATABASE_PROVIDER=MONGODB           — MongoDB Atlas via pymongo
+
+The returned object exposes get_collection(name) which returns a collection
+supporting the astrapy-compatible API used throughout astra_db_ops.py.
 """
 
 import os
-from dotenv import load_dotenv
 import logging
-from astrapy import DataAPIClient
 
-# Load environment variables
-load_dotenv()
-
-# Get AstraDB configuration from environment variables
-ASTRA_API_ENDPOINT = os.getenv("ASTRA_API_ENDPOINT")
-ASTRA_NAMESPACE = os.getenv("ASTRA_NAMESPACE")
-ASTRA_API_TOKEN = os.getenv("ASTRA_API_TOKEN")
 
 def get_db_connection():
     """
-    Get a connection to AstraDB.
-    
+    Return a database connection for the active provider.
+
     Returns:
-        Database: A connection to the AstraDB database, or None if connection fails.
+        astrapy.Database        when DATABASE_PROVIDER=ASTRA (or unset)
+        MongoDatabaseAdapter    when DATABASE_PROVIDER=MONGODB
+        None on connection failure.
     """
-    try:
-        if not all([ASTRA_API_ENDPOINT, ASTRA_NAMESPACE, ASTRA_API_TOKEN]):
-            logging.error("Missing required AstraDB configuration")
-            return None
-            
-        # Initialize the client and get a "Database" object
-        client = DataAPIClient(ASTRA_API_TOKEN)
-        database = client.get_database(ASTRA_API_ENDPOINT, keyspace=ASTRA_NAMESPACE)
-        logging.debug(f"Database connection established: {database.info().name}")
-        return database
-    except Exception as e:
-        logging.error(f"Error establishing database connection: {e}")
-        return None 
+    provider = os.getenv("DATABASE_PROVIDER", "ASTRA").upper().strip()
+
+    if provider == "MONGODB":
+        from .db_connection_mongodb import get_db_connection as _get
+        logging.debug("Database provider: MongoDB Atlas")
+    else:
+        if provider != "ASTRA":
+            logging.warning(
+                "Unknown DATABASE_PROVIDER '%s' — falling back to ASTRA", provider
+            )
+        from .db_connection_astra import get_db_connection as _get
+        logging.debug("Database provider: AstraDB")
+
+    return _get()
