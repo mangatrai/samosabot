@@ -112,16 +112,27 @@ class MongoDatabaseAdapter:
 
 
 # ---------------------------------------------------------------------------
-# Connection
+# Connection (singleton — MongoClient manages its own connection pool)
 # ---------------------------------------------------------------------------
+
+_adapter: "MongoDatabaseAdapter | None" = None
+
 
 def get_db_connection():
     """
-    Connect to MongoDB Atlas and return a MongoDatabaseAdapter.
+    Return a MongoDatabaseAdapter backed by a shared MongoClient singleton.
+
+    MongoClient is designed to be long-lived and manages its own connection
+    pool internally. Creating a new client on every call wastes sockets and
+    adds latency. The singleton is initialised once and reused thereafter.
 
     Returns:
-        MongoDatabaseAdapter, or None if connection fails.
+        MongoDatabaseAdapter, or None if the initial connection fails.
     """
+    global _adapter
+    if _adapter is not None:
+        return _adapter
+
     try:
         import pymongo  # noqa: PLC0415 — optional dependency
     except ImportError:
@@ -134,10 +145,11 @@ def get_db_connection():
             return None
 
         client = pymongo.MongoClient(MONGODB_URI, serverSelectionTimeoutMS=8000)
-        client.server_info()  # raises if connection fails
+        client.server_info()  # raises if unreachable
         db = client[MONGODB_DB_NAME]
         logging.debug("MongoDB connection established (database: %s)", MONGODB_DB_NAME)
-        return MongoDatabaseAdapter(db)
+        _adapter = MongoDatabaseAdapter(db)
+        return _adapter
     except Exception as e:
         logging.error("Error establishing MongoDB connection: %s", e)
         return None
