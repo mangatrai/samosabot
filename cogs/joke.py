@@ -36,7 +36,6 @@ load_dotenv()
 async def get_dad_joke(guild_id: str = None, guild_name: str = None, user_id: str = None, 
                  username: str = None, command_name: str = "joke"):
     """Get dad joke with priority: API (75%) -> Database (20%) -> AI (5%)"""
-    import random
     from utils import astra_db_ops
     
     # Add randomization: 75% API, 20% Database, 5% AI
@@ -73,7 +72,6 @@ async def get_dad_joke(guild_id: str = None, guild_name: str = None, user_id: st
         if joke_response:
             # Parse JSON response and format as two-step joke
             try:
-                import json
                 # Remove markdown formatting if present
                 if joke_response.startswith("```json"):
                     joke_response = joke_response.strip("```json").strip("```").strip()
