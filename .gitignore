@@ -1,0 +1,16 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.log
+
+### BROKK'S CONFIGURATION ###
+.brokk/**
+!.brokk/style.md
+!.brokk/project.properties
+
+### IGNORED FILES ###
+old.env-bk
+migration_export/
+memory/
+migration_export/
