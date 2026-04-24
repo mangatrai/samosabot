@@ -5,12 +5,14 @@ This module defines a utility cog for the Discord bot, providing common helper c
 It includes ping, help, bot status (samosa), and listservers.
 """
 
+import base64
 import logging
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 
 from utils import astra_db_ops
+from utils import error_handler
 
 
 class UtilsCog(commands.Cog):
@@ -19,12 +21,17 @@ class UtilsCog(commands.Cog):
 
     Attributes:
         bot (commands.Bot): The instance of the Discord bot.
-    
+
     Commands:
         ping: Checks and displays the bot's current latency.
         help: Displays a comprehensive list of all available commands organized by category.
     """
-    
+
+    _ALLOWED_ICON_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+    _MAX_ICON_BYTES = 8 * 1024 * 1024  # 8 MB
+
+    samosa_group = app_commands.Group(name="samosa", description="Bot administration commands")
+
     def __init__(self, bot):
         """
         Initializes the UtilsCog with the provided Discord bot instance.
@@ -138,7 +145,9 @@ class UtilsCog(commands.Cog):
             value=(
                 "`!ping` - Check bot response time\n"
                 "`!help` - Show this help message\n"
-                "`/help` - Show help (slash command)"
+                "`/help` - Show help (slash command)\n"
+                "`/samosa seticon <image>` - Set guild-specific bot avatar (Manage Server)\n"
+                "`/samosa removeicon` - Revert bot to global default avatar (Manage Server)"
             ),
             inline=False
         )
@@ -215,9 +224,9 @@ class UtilsCog(commands.Cog):
         latency = round(self.bot.latency * 1000)
         await ctx.send(f"Pong! Latency: {latency}ms")
 
-    @commands.command(name="samosa", description="Configure bot status updates")
+    @commands.command(name="samosa", description="Configure bot status updates or guild avatar")
     async def samosa(self, ctx, action: str, channel: discord.TextChannel = None):
-        """Enable bot status updates (every 30 min) or disable."""
+        """Enable bot status updates, disable them, or set/remove the guild avatar."""
         if action.lower() == "botstatus":
             channel_id = channel.id if channel else ctx.channel.id
             guild_id = ctx.guild.id
@@ -229,25 +238,123 @@ class UtilsCog(commands.Cog):
             guild_id = ctx.guild.id
             astra_db_ops.save_bot_status_channel(guild_id, None)
             await ctx.send("✅ Bot status updates have been disabled for this server.")
+        elif action.lower() == "seticon":
+            if not ctx.author.guild_permissions.manage_guild:
+                await ctx.send("❌ You need **Manage Server** permission to change the bot's icon.")
+                return
+            if not ctx.message.attachments:
+                await ctx.send("❌ Please attach a PNG, JPG, JPEG, or WEBP image to your message (max 8 MB).")
+                return
+            attachment = ctx.message.attachments[0]
+            if not any(attachment.filename.lower().endswith(ext) for ext in self._ALLOWED_ICON_EXTS):
+                await ctx.send("❌ Unsupported file type. Use PNG, JPG, JPEG, or WEBP.")
+                return
+            if attachment.size > self._MAX_ICON_BYTES:
+                await ctx.send(f"❌ Image too large ({attachment.size // (1024 * 1024)} MB). Max is 8 MB.")
+                return
+            try:
+                image_bytes = await attachment.read()
+                ext = attachment.filename.rsplit('.', 1)[-1].lower()
+                mime = {
+                    'png': 'image/png', 'jpg': 'image/jpeg',
+                    'jpeg': 'image/jpeg', 'webp': 'image/webp',
+                }.get(ext, 'image/png')
+                b64 = base64.b64encode(image_bytes).decode('utf-8')
+                await ctx.bot.http.edit_guild_member(
+                    str(ctx.guild.id), '@me', avatar=f"data:{mime};base64,{b64}"
+                )
+                await ctx.send("✅ Guild avatar updated! It may take a moment to propagate.")
+            except Exception as e:
+                await error_handler.handle_error(e, ctx, "samosa seticon")
+        elif action.lower() == "removeicon":
+            if not ctx.author.guild_permissions.manage_guild:
+                await ctx.send("❌ You need **Manage Server** permission.")
+                return
+            try:
+                await ctx.bot.http.edit_guild_member(str(ctx.guild.id), '@me', avatar=None)
+                await ctx.send("✅ Guild avatar removed. Bot will show its global default avatar.")
+            except Exception as e:
+                await error_handler.handle_error(e, ctx, "samosa removeicon")
 
-    @app_commands.command(name="samosa", description="Check or enable bot status updates")
-    @app_commands.describe(action="Enable or disable bot status updates", channel="Select a channel (optional, defaults to current)")
-    @app_commands.choices(action=[
-        app_commands.Choice(name="Bot Status", value="botstatus"),
-        app_commands.Choice(name="Disable", value="disable")
-    ])
-    async def slash_samosa(self, interaction: discord.Interaction, action: str, channel: discord.TextChannel = None):
-        if action.lower() == "botstatus":
-            channel_id = channel.id if channel else interaction.channel.id
-            guild_id = interaction.guild_id
-            astra_db_ops.save_bot_status_channel(guild_id, channel_id)
-            await interaction.response.send_message(f"✅ Bot status updates will be sent to <#{channel_id}> every 30 minutes.")
-            if not self.bot_status_task.is_running():
-                self.bot_status_task.start()
-        elif action.lower() == "disable":
-            guild_id = interaction.guild_id
-            astra_db_ops.save_bot_status_channel(guild_id, None)
-            await interaction.response.send_message("✅ Bot status updates have been disabled for this server.")
+    @samosa_group.command(name="botstatus", description="Send bot status updates to a channel every 30 minutes")
+    @app_commands.describe(channel="Channel for status updates (defaults to current channel)")
+    async def samosa_botstatus(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
+        channel_id = channel.id if channel else interaction.channel.id
+        guild_id = interaction.guild_id
+        astra_db_ops.save_bot_status_channel(guild_id, channel_id)
+        await interaction.response.send_message(f"✅ Bot status updates will be sent to <#{channel_id}> every 30 minutes.")
+        if not self.bot_status_task.is_running():
+            self.bot_status_task.start()
+
+    @samosa_group.command(name="disable", description="Disable bot status updates for this server")
+    async def samosa_disable(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id
+        astra_db_ops.save_bot_status_channel(guild_id, None)
+        await interaction.response.send_message("✅ Bot status updates have been disabled for this server.")
+
+    @samosa_group.command(name="seticon", description="Set a guild-specific avatar for the bot (Manage Server)")
+    @app_commands.describe(image="PNG, JPG, or WEBP image — recommended 512×512 or 1024×1024 px, max 8 MB")
+    async def samosa_seticon(self, interaction: discord.Interaction, image: discord.Attachment):
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message(
+                "❌ You need **Manage Server** permission to change the bot's icon.", ephemeral=True
+            )
+            return
+        if not any(image.filename.lower().endswith(ext) for ext in self._ALLOWED_ICON_EXTS):
+            await interaction.response.send_message(
+                f"❌ **{image.filename}** is not a supported type. Use PNG, JPG, JPEG, or WEBP.", ephemeral=True
+            )
+            return
+        if image.size > self._MAX_ICON_BYTES:
+            await interaction.response.send_message(
+                f"❌ Image is too large ({image.size // (1024 * 1024)} MB). Maximum is 8 MB.", ephemeral=True
+            )
+            return
+        await interaction.response.defer(ephemeral=True)
+        try:
+            image_bytes = await image.read()
+            ext = image.filename.rsplit('.', 1)[-1].lower()
+            mime = {
+                'png': 'image/png', 'jpg': 'image/jpeg',
+                'jpeg': 'image/jpeg', 'webp': 'image/webp',
+            }.get(ext, 'image/png')
+            b64 = base64.b64encode(image_bytes).decode('utf-8')
+            await interaction.client.http.edit_guild_member(
+                str(interaction.guild_id), '@me', avatar=f"data:{mime};base64,{b64}"
+            )
+            embed = discord.Embed(
+                title="✅ Guild Avatar Updated",
+                description=(
+                    "The bot now has a custom look in **this server only**. "
+                    "Changes may take a moment to propagate.\n\n"
+                    "**Tips:**\n"
+                    "• Recommended size: 512×512 or 1024×1024 px\n"
+                    "• Supported formats: PNG, JPG, WEBP\n"
+                    "• Use `/samosa removeicon` to revert to the global default"
+                ),
+                color=discord.Color.green(),
+            )
+            embed.set_thumbnail(url=image.url)
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        except Exception as e:
+            await error_handler.handle_error(e, interaction, "samosa seticon")
+
+    @samosa_group.command(name="removeicon", description="Reset the bot to its global default avatar (Manage Server)")
+    async def samosa_removeicon(self, interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message(
+                "❌ You need **Manage Server** permission.", ephemeral=True
+            )
+            return
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.client.http.edit_guild_member(str(interaction.guild_id), '@me', avatar=None)
+            await interaction.followup.send(
+                "✅ Guild avatar removed. The bot will now show its global default avatar in this server.",
+                ephemeral=True,
+            )
+        except Exception as e:
+            await error_handler.handle_error(e, interaction, "samosa removeicon")
 
     @commands.command(name="listservers", description="List servers where the bot is registered")
     async def list_servers(self, ctx):

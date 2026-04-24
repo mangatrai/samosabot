@@ -49,7 +49,7 @@ discord/
 │   └── astra_create_collection.py  # One-time script: create DB collections
 │
 ├── cogs/                       # One file per feature domain
-│   ├── utils.py                # ping, help, samosa botstatus, listservers
+│   ├── utils.py                # ping, help, samosa (botstatus/disable/seticon/removeicon), listservers
 │   ├── joke.py                 # dad/insult/general/dark/spooky jokes
 │   ├── facts.py                # general & animal facts
 │   ├── trivia.py               # trivia game (orchestrates games/trivia_game.py)
@@ -227,7 +227,10 @@ Both prefix (`!`) and slash (`/`) versions exist for most commands.
 ### Utility
 - `ping` — Latency
 - `help` — All commands
-- `samosa botstatus [channel]` — Configure status update channel
+- `samosa botstatus [channel]` — Enable bot status updates in a channel (30-min interval)
+- `samosa disable` — Disable bot status updates for this server
+- `samosa seticon <image>` — Set guild-specific bot avatar (PNG/JPG/WEBP, max 8 MB; Manage Server only; slash command uses `discord.Attachment`, prefix reads `ctx.message.attachments[0]`)
+- `samosa removeicon` — Reset bot to global default avatar for this server (Manage Server only)
 
 ### Verification (slash only)
 - `/verification` — Configure verification

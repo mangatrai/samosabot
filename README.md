@@ -220,8 +220,13 @@ Users submit confessions via slash command only (for anonymity). Every confessio
 ### ⚙️ Admin Commands
 | Command | Description |
 |---------|-------------|
-| `/samosa botstatus <channel>` | Set bot status channel |
-| `!samosa botstatus <channel>` | Set bot status (prefix) |
+| `/samosa botstatus [channel]` | Send bot status updates every 30 min to a channel |
+| `/samosa disable` | Disable bot status updates for this server |
+| `/samosa seticon <image>` | Set a guild-specific avatar for the bot (PNG/JPG/WEBP, max 8 MB) — Manage Server |
+| `/samosa removeicon` | Reset bot to its global default avatar — Manage Server |
+| `!samosa botstatus [channel]` | Set bot status channel (prefix) |
+| `!samosa seticon` | Set guild avatar — attach image to the message (prefix) |
+| `!samosa removeicon` | Reset guild avatar (prefix) |
 | `!listservers` | List all registered servers |
 
 ---
