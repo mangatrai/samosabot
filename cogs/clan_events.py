@@ -1275,26 +1275,25 @@ class ClanEvents(commands.Cog):
 
     # ---- /event list ----
 
-    @event_group.command(name="list", description="List all events and their activities for this server")
+    @event_group.command(name="list", description="List active events and their activities for this server")
     @app_commands.guild_only()
     async def event_list(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
-        events = astra_db_ops.get_clan_events(str(interaction.guild_id))
+        events = astra_db_ops.get_clan_events(str(interaction.guild_id), status="active")
         if not events:
             await interaction.followup.send(
-                "No events found. Ask a mod to create one with `/event create`.", ephemeral=True
+                "No active events right now. Check back later or ask a mod!", ephemeral=True
             )
             return
-        embed = discord.Embed(title="📋  Events", color=discord.Color.blurple())
+        embed = discord.Embed(title="🟢  Active Events", color=discord.Color.green())
         for e in events[:20]:
-            icon = STATUS_EMOJI.get(e.get("status", "draft"), "📝")
-            dates = f"  •  {e['start_date']} → {e.get('end_date', '?')}" if e.get("start_date") else ""
+            dates = f"📅 {e['start_date']} → {e.get('end_date', '?')}" if e.get("start_date") else ""
             activities = e.get("activities", [])
             acts_lines = "\n".join(f"  `{a['points']} pts`  {a['name']}" for a in activities)
-            value = f"**{e.get('status', 'draft').title()}**{dates}"
+            value = dates or "​"
             if acts_lines:
                 value += f"\n{acts_lines}"
-            embed.add_field(name=f"{icon}  {e['name']}", value=value, inline=False)
+            embed.add_field(name=f"🟢  {e['name']}", value=value, inline=False)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ---- /event award ----
