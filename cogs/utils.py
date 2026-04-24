@@ -145,8 +145,18 @@ class UtilsCog(commands.Cog):
             value=(
                 "`!ping` - Check bot response time\n"
                 "`!help` - Show this help message\n"
-                "`/help` - Show help (slash command)\n"
-                "`/samosa seticon <image>` - Set guild-specific bot avatar (Manage Server)\n"
+                "`/help` - Show help (slash command)"
+            ),
+            inline=False
+        )
+
+        # Admin Section
+        embed.add_field(
+            name="⚙️ Admin",
+            value=(
+                "`/samosa botstatus [channel]` - Send bot status updates every 30 min (admin)\n"
+                "`/samosa disable` - Disable bot status updates (admin)\n"
+                "`/samosa seticon <image>` - Set guild-specific bot avatar — PNG/JPG/WEBP, max 8 MB (Manage Server)\n"
                 "`/samosa removeicon` - Revert bot to global default avatar (Manage Server)"
             ),
             inline=False

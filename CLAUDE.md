@@ -172,7 +172,7 @@ All DB operations live in `utils/astra_db_ops.py`. Collections are created by `u
 
 | Collection | Purpose |
 |---|---|
-| `registered_servers` | Guild metadata, confession settings, status |
+| `registered_servers` | Guild metadata, confession settings, status; `has_custom_bot_icon` flag set by `/samosa seticon/removeicon` |
 | `user_requests` | All confessions and ask-command logs |
 | `daily_counters` | Per-user daily request tracking |
 | `trivia_leaderboard` | User trivia scores |
@@ -182,7 +182,7 @@ All DB operations live in `utils/astra_db_ops.py`. Collections are created by `u
 | `verification_attempts` | Verification event logs |
 | `guild_verification_settings` | Per-guild verification config |
 | `active_verifications` | In-progress user verification sessions |
-| `clan_event_settings` | Per-guild clan roles, mod roles, channel config, auto-post flag |
+| `clan_event_settings` | Per-guild clan roles, mod roles, channel config, auto-post flag, `last_recap_sent_at` timestamp |
 | `clan_events` | Event definitions: name, dates, status, activities + point values |
 | `clan_scores` | Per-user per-activity score records (accumulates on repeat awards) |
 | `clan_adjustments` | Manual point corrections with mandatory reason (audit log) |
@@ -289,7 +289,7 @@ Dual enforcement in `utils/throttle.py`: minimum gap between commands + max per 
 ### Background Tasks
 - Bot status updates: 30-minute interval (in `cogs/utils.py`)
 - QOTD posting: 24-hour interval (in `cogs/qotd.py`)
-- Clan events daily recap: 24-hour interval (in `cogs/clan_events.py`) — posts clan standings to announcement channel for guilds with `auto_post=true` and at least one active event
+- Clan events daily recap: 24-hour interval (in `cogs/clan_events.py`) — posts clan standings to announcement channel for guilds with `auto_post=true` and at least one active event; `last_recap_sent_at` is stamped per guild after each post so bot restarts don't trigger duplicate recaps
 
 ---
 
@@ -346,7 +346,7 @@ AstraDB free tier is being discontinued. The plan is to migrate to **MongoDB Atl
 | `verification_attempts` | Verification audit log | `user_id`, `guild_id` |
 | `guild_verification_settings` | Per-guild verification config | `guild_id` |
 | `active_verifications` | In-progress verification sessions | `user_id`, `guild_id` |
-| `clan_event_settings` | Per-guild clan roles, mod roles, channel config, auto-post flag | `guild_id` |
+| `clan_event_settings` | Per-guild clan roles, mod roles, channel config, auto-post flag, `last_recap_sent_at` timestamp | `guild_id` |
 | `clan_events` | Event definitions: name, dates, status, activities + point values | `guild_id`, `event_id`, `status` |
 | `clan_scores` | Per-user per-activity score records (accumulates on repeat awards) | `guild_id`, `event_id`, `user_id`, `activity_name` |
 | `clan_adjustments` | Manual point corrections with mandatory reason (audit log) | `guild_id`, `event_id`, `user_id` |

@@ -17,6 +17,7 @@ A feature-rich Discord bot that brings **Clan Events, Trivia Games, Truth or Dar
 - 🔮 **AI Fortune Teller** – Receive fun AI-generated fortunes
 - 📢 **Question of the Day** – Daily thought-provoking questions
 - 🚢 **Ship** – See compatibility between two users with a generated image
+- 🎨 **Per-Server Bot Avatar** – Admins can give the bot a custom look on their server without changing its appearance elsewhere
 
 ---
 
@@ -263,6 +264,7 @@ See the detailed walkthrough in the [Clan Events section](#-clan-events) above.
 - **Smart Fallbacks** – If APIs fail, AI generates content automatically
 - **Multi-Source Content** – Content comes from APIs, community database, or AI generation
 - **Standardized Errors** – Errors show consistent messages and suggest `!help` or `!ping` where useful; logs include command, user, and guild for debugging
+- **Per-Server Bot Avatar** – Use `/samosa seticon` to give the bot a server-specific look; `/samosa removeicon` reverts to global default
 
 ---
 
