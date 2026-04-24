@@ -1213,7 +1213,7 @@ def add_message_metadata(question_id: str, message_id: str, guild_id: str, chann
 
 def get_truth_dare_message_metadata(message_id: str):
     """Get truth/dare message metadata by message ID from question records.
-    
+
     Note: AstraDB doesn't support $elemMatch for array queries, so we use Python-side filtering.
     This is the most efficient approach available for AstraDB's current capabilities.
     """
@@ -1221,13 +1221,13 @@ def get_truth_dare_message_metadata(message_id: str):
         collection = get_truth_dare_questions_collection()
         if collection is None:
             return None
-        
+
         # Query documents with non-empty message_metadata arrays
         # This is the only array querying approach that works in AstraDB
         # Performance note: This queries all documents with message_metadata, then filters in Python
         # For better performance, consider adding an index on message_metadata if query volume is high
         all_docs = collection.find({"message_metadata": {"$exists": True, "$ne": []}})
-        
+
         for question_doc in all_docs:
             # Find the specific message metadata within the array
             for metadata in question_doc.get("message_metadata", []):
@@ -1236,9 +1236,266 @@ def get_truth_dare_message_metadata(message_id: str):
                     metadata["question_id"] = str(question_doc["_id"])
                     logging.debug(f"Found message metadata for {message_id} in question {question_doc['_id']}")
                     return metadata
-        
+
         logging.debug(f"No message metadata found for message_id: {message_id}")
         return None
     except Exception as e:
         logging.error(f"Error getting truth/dare message metadata: {e}")
         return None
+
+
+# ==================== CLAN EVENTS ====================
+
+def get_clan_event_settings_collection():
+    database = get_db_connection()
+    if database is None:
+        return None
+    try:
+        return database.get_collection("clan_event_settings")
+    except Exception as e:
+        logging.error(f"Failed to retrieve clan_event_settings collection: {e}")
+        return None
+
+def get_clan_events_collection():
+    database = get_db_connection()
+    if database is None:
+        return None
+    try:
+        return database.get_collection("clan_events")
+    except Exception as e:
+        logging.error(f"Failed to retrieve clan_events collection: {e}")
+        return None
+
+def get_clan_scores_collection():
+    database = get_db_connection()
+    if database is None:
+        return None
+    try:
+        return database.get_collection("clan_scores")
+    except Exception as e:
+        logging.error(f"Failed to retrieve clan_scores collection: {e}")
+        return None
+
+def get_clan_adjustments_collection():
+    database = get_db_connection()
+    if database is None:
+        return None
+    try:
+        return database.get_collection("clan_adjustments")
+    except Exception as e:
+        logging.error(f"Failed to retrieve clan_adjustments collection: {e}")
+        return None
+
+def get_clan_event_settings(guild_id: str) -> dict:
+    try:
+        collection = get_clan_event_settings_collection()
+        if collection is None:
+            return None
+        return collection.find_one({"guild_id": guild_id})
+    except Exception as e:
+        logging.error(f"Error fetching clan event settings for guild {guild_id}: {e}")
+        return None
+
+def upsert_clan_event_settings(guild_id: str, settings: dict) -> None:
+    try:
+        collection = get_clan_event_settings_collection()
+        if collection is None:
+            return
+        settings["guild_id"] = guild_id
+        settings["updated_at"] = datetime.datetime.utcnow().isoformat()
+        collection.find_one_and_update(
+            {"guild_id": guild_id},
+            {"$set": settings},
+            upsert=True,
+        )
+        logging.debug(f"Upserted clan event settings for guild {guild_id}")
+    except Exception as e:
+        logging.error(f"Error upserting clan event settings for guild {guild_id}: {e}")
+
+def create_clan_event(guild_id: str, event_data: dict) -> str:
+    try:
+        collection = get_clan_events_collection()
+        if collection is None:
+            return None
+        event_data["guild_id"] = guild_id
+        event_data["created_at"] = datetime.datetime.utcnow().isoformat()
+        collection.insert_one(event_data)
+        logging.debug(f"Created clan event {event_data.get('event_id')} for guild {guild_id}")
+        return event_data["event_id"]
+    except Exception as e:
+        logging.error(f"Error creating clan event for guild {guild_id}: {e}")
+        return None
+
+def get_clan_events(guild_id: str, status: str = None) -> list:
+    try:
+        collection = get_clan_events_collection()
+        if collection is None:
+            return []
+        query = {"guild_id": guild_id}
+        if status:
+            query["status"] = status
+        return list(collection.find(query, sort={"created_at": -1}))
+    except Exception as e:
+        logging.error(f"Error fetching clan events for guild {guild_id}: {e}")
+        return []
+
+def get_clan_event_by_name(guild_id: str, name: str) -> dict:
+    try:
+        collection = get_clan_events_collection()
+        if collection is None:
+            return None
+        return collection.find_one({"guild_id": guild_id, "name": name})
+    except Exception as e:
+        logging.error(f"Error fetching clan event '{name}' for guild {guild_id}: {e}")
+        return None
+
+def get_clan_event_by_id(guild_id: str, event_id: str) -> dict:
+    try:
+        collection = get_clan_events_collection()
+        if collection is None:
+            return None
+        return collection.find_one({"guild_id": guild_id, "event_id": event_id})
+    except Exception as e:
+        logging.error(f"Error fetching clan event {event_id} for guild {guild_id}: {e}")
+        return None
+
+def update_clan_event_status(guild_id: str, event_id: str, status: str) -> None:
+    try:
+        collection = get_clan_events_collection()
+        if collection is None:
+            return
+        collection.find_one_and_update(
+            {"guild_id": guild_id, "event_id": event_id},
+            {"$set": {"status": status, "status_updated_at": datetime.datetime.utcnow().isoformat()}},
+        )
+        logging.debug(f"Updated clan event {event_id} status to '{status}'")
+    except Exception as e:
+        logging.error(f"Error updating clan event {event_id} status: {e}")
+
+def award_clan_points(guild_id: str, event_id: str, user_id: str, username: str,
+                      activity_name: str, clan_role_id: str, clan_name: str, points: int) -> None:
+    try:
+        collection = get_clan_scores_collection()
+        if collection is None:
+            return
+        collection.find_one_and_update(
+            {"guild_id": guild_id, "event_id": event_id, "user_id": user_id, "activity_name": activity_name},
+            {
+                "$inc": {"total_points": points, "award_count": 1},
+                "$set": {
+                    "username": username,
+                    "clan_role_id": clan_role_id,
+                    "clan_name": clan_name,
+                    "last_updated": datetime.datetime.utcnow().isoformat(),
+                },
+            },
+            upsert=True,
+        )
+        logging.debug(f"Awarded {points} pts to user {user_id} for '{activity_name}' in event {event_id}")
+    except Exception as e:
+        logging.error(f"Error awarding clan points: {e}")
+
+def record_clan_adjustment(guild_id: str, event_id: str, user_id: str, username: str,
+                           clan_role_id: str, clan_name: str, points: int, reason: str,
+                           mod_user_id: str, mod_username: str) -> None:
+    try:
+        collection = get_clan_adjustments_collection()
+        if collection is None:
+            return
+        doc = {
+            "guild_id": guild_id,
+            "event_id": event_id,
+            "user_id": user_id,
+            "username": username,
+            "clan_role_id": clan_role_id,
+            "clan_name": clan_name,
+            "points": points,
+            "reason": reason,
+            "mod_user_id": mod_user_id,
+            "mod_username": mod_username,
+            "created_at": datetime.datetime.utcnow().isoformat(),
+        }
+        collection.insert_one(doc)
+        logging.debug(f"Recorded clan adjustment {points} pts for user {user_id} in event {event_id}: {reason}")
+    except Exception as e:
+        logging.error(f"Error recording clan adjustment: {e}")
+
+def _aggregate_member_scores(score_docs: list, adj_docs: list) -> list:
+    """Aggregate clan_scores + clan_adjustments into per-member totals. Returns sorted list."""
+    user_data = {}
+    for doc in score_docs:
+        uid = doc["user_id"]
+        if uid not in user_data:
+            user_data[uid] = {
+                "user_id": uid,
+                "username": doc.get("username", "Unknown"),
+                "clan_role_id": doc.get("clan_role_id"),
+                "clan_name": doc.get("clan_name"),
+                "total_points": 0,
+            }
+        user_data[uid]["total_points"] += doc.get("total_points", 0)
+    for doc in adj_docs:
+        uid = doc["user_id"]
+        if uid not in user_data:
+            user_data[uid] = {
+                "user_id": uid,
+                "username": doc.get("username", "Unknown"),
+                "clan_role_id": doc.get("clan_role_id"),
+                "clan_name": doc.get("clan_name"),
+                "total_points": 0,
+            }
+        user_data[uid]["total_points"] += doc.get("points", 0)
+    return sorted(user_data.values(), key=lambda x: x["total_points"], reverse=True)
+
+def get_clan_event_leaderboard(guild_id: str, event_id: str) -> list:
+    """Returns per-member scores for an event, sorted by total points descending."""
+    try:
+        scores = list(get_clan_scores_collection().find({"guild_id": guild_id, "event_id": event_id}) or [])
+        adjs = list(get_clan_adjustments_collection().find({"guild_id": guild_id, "event_id": event_id}) or [])
+        return _aggregate_member_scores(scores, adjs)
+    except Exception as e:
+        logging.error(f"Error fetching clan event leaderboard: {e}")
+        return []
+
+def get_clan_alltime_leaderboard(guild_id: str) -> list:
+    """Returns per-member all-time scores across all events, sorted by total points descending."""
+    try:
+        scores = list(get_clan_scores_collection().find({"guild_id": guild_id}) or [])
+        adjs = list(get_clan_adjustments_collection().find({"guild_id": guild_id}) or [])
+        return _aggregate_member_scores(scores, adjs)
+    except Exception as e:
+        logging.error(f"Error fetching clan all-time leaderboard: {e}")
+        return []
+
+def get_clan_rankings(member_scores: list) -> list:
+    """Aggregates member scores into clan totals/averages. Returns sorted list."""
+    clan_data = {}
+    for member in member_scores:
+        cid = member.get("clan_role_id")
+        if not cid:
+            continue
+        if cid not in clan_data:
+            clan_data[cid] = {
+                "clan_role_id": cid,
+                "clan_name": member.get("clan_name", "Unknown"),
+                "total_points": 0,
+                "member_count": 0,
+            }
+        clan_data[cid]["total_points"] += member["total_points"]
+        clan_data[cid]["member_count"] += 1
+    for clan in clan_data.values():
+        mc = clan["member_count"]
+        clan["avg_points"] = round(clan["total_points"] / mc, 1) if mc > 0 else 0
+    return sorted(clan_data.values(), key=lambda x: x["total_points"], reverse=True)
+
+def get_user_event_activity_breakdown(guild_id: str, event_id: str, user_id: str) -> list:
+    """Returns per-activity breakdown for a user in an event."""
+    try:
+        collection = get_clan_scores_collection()
+        if collection is None:
+            return []
+        docs = list(collection.find({"guild_id": guild_id, "event_id": event_id, "user_id": user_id}))
+        return sorted(docs, key=lambda x: x.get("total_points", 0), reverse=True)
+    except Exception as e:
+        logging.error(f"Error fetching activity breakdown: {e}")
+        return []

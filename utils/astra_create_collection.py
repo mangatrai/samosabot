@@ -101,18 +101,29 @@ def create_truth_dare_collections():
     for collection in collections:
         create_collection(collection)
 
+def create_clan_event_collections():
+    """Create collections related to the Clan Events system."""
+    collections = [
+        "clan_event_settings",
+        "clan_events",
+        "clan_scores",
+        "clan_adjustments",
+    ]
+    for collection in collections:
+        create_collection(collection)
+
 def create_all_collections():
     """Create all collections for the Discord bot."""
     logging.info("Starting collection creation process...")
-    
-    # Create collections for each feature
+
     create_qotd_collections()
     create_trivia_collections()
     create_verification_collections()
     create_user_collections()
     create_server_collections()
     create_truth_dare_collections()
-    
+    create_clan_event_collections()
+
     logging.info("Collection creation process completed!")
 
 def main():
