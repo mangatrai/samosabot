@@ -100,20 +100,25 @@ def categorize_error(error: Exception) -> tuple[ErrorCategory, ErrorSeverity]:
         return ErrorCategory.NETWORK_ERROR, ErrorSeverity.HIGH
     
     # Validation errors (Functional - Data Format)
-    elif isinstance(error, (ValueError, KeyError, AttributeError, TypeError, IndexError)):
+    # ValueError/KeyError/IndexError arise from bad user input or malformed external data
+    elif isinstance(error, (ValueError, KeyError, IndexError)):
         return ErrorCategory.VALIDATION_ERROR, ErrorSeverity.LOW
     elif isinstance(error, __import__('json').JSONDecodeError):
         return ErrorCategory.VALIDATION_ERROR, ErrorSeverity.MEDIUM
-    
+    # AttributeError/TypeError are programming bugs (wrong method name, bad argument types)
+    # — they must log as ERROR so they're not silently buried as warnings
+    elif isinstance(error, (AttributeError, TypeError)):
+        return ErrorCategory.UNKNOWN_ERROR, ErrorSeverity.HIGH
+
     # API/Database errors (Runtime - based on error message)
     error_str = str(error).lower()
     if "api" in error_str or "openai" in error_str or "http" in error_str:
         return ErrorCategory.API_ERROR, ErrorSeverity.HIGH
     elif "database" in error_str or "astra" in error_str or "db" in error_str:
         return ErrorCategory.DATABASE_ERROR, ErrorSeverity.HIGH
-    
-    # Default (Runtime - Unknown)
-    return ErrorCategory.UNKNOWN_ERROR, ErrorSeverity.MEDIUM
+
+    # Default (Runtime - Unknown): unrecognized exception types warrant logging.error, not warning
+    return ErrorCategory.UNKNOWN_ERROR, ErrorSeverity.HIGH
 
 async def send_error_safely(
     context: Union[discord.Interaction, commands.Context],
