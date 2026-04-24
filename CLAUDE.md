@@ -10,7 +10,7 @@
 |---|---|
 | Language | Python 3.13.7 |
 | Bot framework | discord.py (`discord`) |
-| Database | AstraDB via `astrapy` |
+| Database | MongoDB Atlas (`pymongo`) — AstraDB (`astrapy`) also supported via `DATABASE_PROVIDER` env var |
 | AI | OpenAI API (GPT-4o, DALL-E-3, gpt-4.1-nano) |
 | Sentiment analysis | VADER (`vaderSentiment`) + NLTK |
 | Image processing | Pillow |
@@ -35,8 +35,10 @@ discord/
 │   └── ship_messages.py        # 5-tier ship compatibility messages (20+ per tier)
 │
 ├── utils/
-│   ├── db_connection.py        # AstraDB client singleton
-│   ├── astra_db_ops.py         # All DB operations (~1100 lines, the data layer)
+│   ├── db_connection.py        # Provider factory — reads DATABASE_PROVIDER, delegates to correct module
+│   ├── db_connection_astra.py  # AstraDB connection via astrapy
+│   ├── db_connection_mongodb.py # MongoDB connection via pymongo + MongoCollectionAdapter
+│   ├── astra_db_ops.py         # All DB operations — provider-agnostic data layer
 │   ├── openai_utils.py         # OpenAI text/image generation wrappers
 │   ├── error_handler.py        # Standardized error handling (8 categories, 5 severities)
 │   ├── sentiment_analyzer.py   # VADER sentiment for confessions
@@ -65,10 +67,13 @@ discord/
 ├── games/
 │   └── trivia_game.py          # Full trivia game logic (~600 lines)
 │
-└── tests/
-    ├── verification_test.py
-    ├── test_clan_events.py      # Unit tests: throttle, score aggregation, clan rankings, progress bar
-    └── clean_collection_data.py
+├── tests/
+│   ├── verification_test.py
+│   ├── test_clan_events.py      # Unit tests: throttle, score aggregation, clan rankings, progress bar
+│   └── clean_collection_data.py
+│
+└── tools/
+    └── db_migrate.py            # Standalone DB migration tool: export, import, migrate (AstraDB ↔ MongoDB)
 ```
 
 ---
@@ -76,14 +81,15 @@ discord/
 ## How to Run
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (bot uses uv; venv is at ~/.uv/venvs/discord)
+uv run --venv ~/.uv/venvs/discord pip install -r requirements.txt
+# or: source ~/.uv/venvs/discord/bin/activate && pip install -r requirements.txt
 
-# Set up environment variables (copy and fill in values)
-cp old.env-bk .env   # WARNING: old.env-bk has exposed secrets — rotate all tokens first
+# Environment variables are managed via Doppler — no .env file needed
+# (If running without Doppler, copy old.env-bk and fill in values — rotate all tokens first)
 
 # Run the bot
-python bot.py
+uv run --venv ~/.uv/venvs/discord python bot.py
 ```
 
 Set `ENABLE_FLASK=true` to start the keep-alive web server on port 8080.
@@ -98,8 +104,11 @@ Set `ENABLE_FLASK=true` to start the keep-alive web server on port 8080.
 |---|---|
 | `DISCORD_BOT_TOKEN` | Bot authentication token |
 | `OPENAI_API_KEY` | OpenAI API key |
-| `ASTRA_API_ENDPOINT` | AstraDB endpoint URL |
-| `ASTRA_API_TOKEN` | AstraDB authentication token |
+| `ASTRA_API_ENDPOINT` | AstraDB endpoint URL (only when `DATABASE_PROVIDER=ASTRA`) |
+| `ASTRA_API_TOKEN` | AstraDB authentication token (only when `DATABASE_PROVIDER=ASTRA`) |
+| `DATABASE_PROVIDER` | `MONGODB` or `ASTRA` — selects which DB backend to use |
+| `MONGODB_URI` | MongoDB Atlas connection string (required when `DATABASE_PROVIDER=MONGODB`) |
+| `MONGODB_DB_NAME` | MongoDB database name (default: `samosabot`) |
 | `EXTENSIONS` | Comma-separated list of cog module paths to load (e.g. `cogs.joke,cogs.trivia,...`) |
 
 ### Optional / Feature Flags
@@ -234,19 +243,20 @@ All mod commands are ephemeral. `event` and `events` are exempt from throttling 
 - `/events settings` — View current configuration (mod+)
 
 **Event lifecycle (mod+: Manage Server OR designated mod role)**
-- `/event create` — Multi-step: basic info modal → activity select → set point values → review + submit
+- `/event create [image]` — Multi-step: basic info modal (dates in MM/DD/YYYY) → activity select → set point values → review + submit; optional banner image attached right in the command
 - `/event start <event>` — Activate a draft event; posts announcement if auto-post enabled
 - `/event stop <event>` — End an active event; posts final leaderboard if auto-post enabled
-- `/event list` — List all events with status and dates
+- `/event setbanner <event> <image>` — Upload or replace a banner image (PNG/JPG/WEBP) after event creation
 
 **Scoring (mod+)**
 - `/event award @member <event> <activity>` — Award fixed points; re-awarding accumulates on the same record
 - `/event adjust @member <event> <points> <reason>` — Manual correction; stored in `clan_adjustments` (adjustments factor into scores at query time, not in `clan_scores`)
 
-**Leaderboard (everyone)**
+**For everyone**
+- `/event list` — List currently active events with their activities and point values (ephemeral)
 - `/event leaderboard [member] [event]` — User score + rank, clan total/average/rank, top 5 members, top 5 clans; all-time or event-scoped
 
-**Background task:** Daily recap posts to announcement channel for all guilds with `auto_post=true` and at least one active event.
+**Background task:** Daily recap at a fixed UTC time — posts clan standings for all active events to the announcement channel, for all guilds with `auto_post=true`. Implemented as `tasks.loop(hours=24)` in `cogs/clan_events.py`.
 
 ---
 
@@ -276,6 +286,7 @@ Dual enforcement in `utils/throttle.py`: minimum gap between commands + max per 
 ### Background Tasks
 - Bot status updates: 30-minute interval (in `cogs/utils.py`)
 - QOTD posting: 24-hour interval (in `cogs/qotd.py`)
+- Clan events daily recap: 24-hour interval (in `cogs/clan_events.py`) — posts clan standings to announcement channel for guilds with `auto_post=true` and at least one active event
 
 ---
 
@@ -332,6 +343,10 @@ AstraDB free tier is being discontinued. The plan is to migrate to **MongoDB Atl
 | `verification_attempts` | Verification audit log | `user_id`, `guild_id` |
 | `guild_verification_settings` | Per-guild verification config | `guild_id` |
 | `active_verifications` | In-progress verification sessions | `user_id`, `guild_id` |
+| `clan_event_settings` | Per-guild clan roles, mod roles, channel config, auto-post flag | `guild_id` |
+| `clan_events` | Event definitions: name, dates, status, activities + point values | `guild_id`, `event_id`, `status` |
+| `clan_scores` | Per-user per-activity score records (accumulates on repeat awards) | `guild_id`, `event_id`, `user_id`, `activity_name` |
+| `clan_adjustments` | Manual point corrections with mandatory reason (audit log) | `guild_id`, `event_id`, `user_id` |
 
 ### Migration Tool (`tools/db_migrate.py`)
 

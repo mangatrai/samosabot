@@ -1,22 +1,22 @@
 # 🤖 Discord Bot - User Guide
 
-A feature-rich Discord bot that brings **Trivia Games, Truth or Dare, Anonymous Confessions, Random Facts, AI-generated Jokes, Pickup Lines, Roasts, and more** to your server!
+A feature-rich Discord bot that brings **Clan Events, Trivia Games, Truth or Dare, Anonymous Confessions, Random Facts, AI-generated Jokes, Pickup Lines, Roasts, and more** to your server!
 
 ---
 
 ## 🚀 Features
 
-- 🏆 **Clan Events** – Point-based clan competitions with leaderboards, activity scoring, and daily recaps
+- 🏆 **Clan Events** – Point-based clan competitions: create events, award points for activities, and track leaderboards with daily recaps
 - 🎉 **Trivia Game** – Play interactive trivia with automatic score tracking and leaderboards
 - 🎯 **Truth or Dare** – Interactive party game with user submissions and feedback
-- 💬 **Anonymous Confessions** – Submit confessions with sentiment analysis; admins can require approval, auto-approve positive posts, and review with First/Previous/Next/Last pagination
+- 💬 **Anonymous Confessions** – Submit confessions with sentiment analysis; admins can require approval, auto-approve positive posts, and review with paginated history
 - 📚 **Random Facts** – Get interesting facts about animals and general topics
 - 🤣 **AI-Powered Jokes** – Multiple joke categories including dad jokes, dark humor, and more
 - 💘 **Pickup Lines** – Generate flirty and witty pickup lines
 - 🔥 **Roast Machine** – Generate playful AI-powered roasts
 - 🔮 **AI Fortune Teller** – Receive fun AI-generated fortunes
 - 📢 **Question of the Day** – Daily thought-provoking questions
-- 🚢 **Ship** – See compatibility between two users
+- 🚢 **Ship** – See compatibility between two users with a generated image
 
 ---
 
@@ -24,44 +24,54 @@ A feature-rich Discord bot that brings **Trivia Games, Truth or Dare, Anonymous 
 
 ### 🏆 Clan Events
 
-A point-based clan competition system. Admins define clans (Discord roles), create timed events with configurable activities, and mods award points to members. All mod commands are ephemeral (visible only to the mod).
+A point-based clan competition system. Admins define clans (Discord roles) and configure mod roles during setup. Mods create events, award points for activities, and make adjustments — all via ephemeral slash commands invisible to the channel.
 
-#### Setup (Manage Server only)
+#### Setup (Manage Server permission required)
 
 | Command | Description |
 |---------|-------------|
-| `/events setup` | Configure clan roles, mod roles, channels, and auto-post setting |
-| `/events settings` | View current configuration |
+| `/events setup` | Configure clan roles, mod roles, admin channel, announcement channel, and auto-post |
+| `/events settings` | View the current configuration |
 
 #### Event Lifecycle (mod only)
 
 | Command | Description |
 |---------|-------------|
-| `/event create` | Create a new event — multi-step: basic info → select activities → set point values |
-| `/event start <event>` | Set event to active and optionally post an announcement |
-| `/event stop <event>` | End an event and optionally post final leaderboard |
-| `/event list` | List all events with status and dates |
+| `/event create [image]` | Create a new event — optionally attach a banner image (PNG/JPG/WEBP) right in the command |
+| `/event start <event>` | Set a draft event to active; posts a hype announcement if auto-post is on |
+| `/event stop <event>` | End an active event; posts a final leaderboard if auto-post is on |
+| `/event setbanner <event> <image>` | Upload or replace a banner image for an existing event |
 
 #### Scoring (mod only)
 
 | Command | Description |
 |---------|-------------|
-| `/event award @member <event> <activity>` | Award fixed points for a completed activity; accumulates on repeated awards |
-| `/event adjust @member <event> <points> <reason>` | Add or subtract points with a mandatory reason (stored in audit log) |
+| `/event award @member <event> <activity>` | Award fixed points for a completed activity; awarding the same activity again accumulates on the same record |
+| `/event adjust @member <event> <points> <reason>` | Add or subtract points with a mandatory reason — stored in a separate audit log |
 
-#### Leaderboard (everyone)
+#### For Everyone
 
 | Command | Description |
 |---------|-------------|
-| `/event leaderboard [member] [event]` | View scores and clan rankings — all-time or per-event |
+| `/event list` | See all currently active events and their activities with point values |
+| `/event leaderboard [member] [event]` | View scores, clan rankings, and top-5 tables — all-time or scoped to a specific event |
 
 **How it works:**
-- Clans are Discord roles configured in `/events setup`
-- Each member belongs to the first matching clan role
-- Events have curated activities (QOTD, Picture of the Week, Clue Game, Bump Server, Invite a Friend) plus custom activities you add
-- Point values are fixed per activity at event creation time
-- Adjustments are stored separately and factored in at query time (full audit trail)
-- If **Auto-Post** is enabled: start/stop announcements and a daily clan recap post automatically to the announcement channel
+- Clans are Discord roles configured in `/events setup` — each member is matched to their first matching clan role
+- Events support five curated activities (Question of the Day, Picture of the Week, Clue Game, Bump Server, Invite a Friend) plus unlimited custom activities you define at creation time
+- Point values are fixed per activity when the event is created
+- Date fields use **MM/DD/YYYY** format
+- Manual adjustments are stored separately from base scores and factored in at query time — full audit trail
+- If **Auto-Post** is enabled: event start/stop announcements and a daily clan standings recap are automatically posted to the announcement channel
+
+#### Clan Events Flow (mod)
+
+1. Run `/events setup` → select admin channel, announcement channel, clan roles, mod roles, and whether to auto-post
+2. Run `/event create` (optionally attach a banner image) → fill in the name, description, and dates → select activities → set point values → review and submit
+3. Run `/event start "Event Name"` when you're ready to go live
+4. Award points with `/event award @member "Event Name" "Activity Name"` as members participate
+5. Use `/event adjust` for any corrections — always requires a reason
+6. Run `/event stop "Event Name"` to close the event and post final standings
 
 ---
 
@@ -89,7 +99,7 @@ A point-based clan competition system. Admins define clans (Discord roles), crea
 
 **Game Types:**
 - **Truth** – Answer personal questions
-- **Dare** – Complete fun challenges  
+- **Dare** – Complete fun challenges
 - **Would You Rather** – Make tough choices
 - **Never Have I Ever** – Share experiences
 - **Paranoia** – Spooky questions
@@ -220,8 +230,11 @@ Users submit confessions via slash command only (for anonymity). Every confessio
 
 ### Getting Started
 1. **Invite the bot** to your server with proper permissions
-2. **Use slash commands** (recommended) - type `/` and select the bot
-3. **Use prefix commands** - type `!` followed by the command
+2. **Use slash commands** (recommended) — type `/` and select the bot
+3. **Use prefix commands** — type `!` followed by the command
+
+### Clan Events Flow
+See the detailed walkthrough in the [Clan Events section](#-clan-events) above.
 
 ### Truth or Dare Game Flow
 1. Use `/tod` to start a game
@@ -237,6 +250,7 @@ Users submit confessions via slash command only (for anonymity). Every confessio
 4. Check leaderboards with `/trivia leaderboard`
 
 ### Special Features
+- **Clan Events** – Organized competitions with clans, point tracking, audit trail, and daily leaderboard recaps
 - **Anonymous Confessions** – Slash-only submission, sentiment analysis (VADER), optional admin approval, and discussion threads for every posted confession
 - **Interactive Buttons** – Many commands use clickable buttons for easy navigation (buttons persist after bot restarts)
 - **Emoji Reactions** – Rate content quality with 👍/👎 reactions for jokes, facts, and Truth or Dare questions
@@ -252,6 +266,7 @@ Users submit confessions via slash command only (for anonymity). Every confessio
 The bot needs these permissions to work properly:
 - **Send Messages** – To respond to commands
 - **Embed Links** – To display formatted content
+- **Attach Files** – For ship compatibility images and event banner uploads
 - **Add Reactions** – For interactive elements
 - **Use Slash Commands** – For modern command interface
 - **Read Message History** – To track responses and reactions
@@ -261,6 +276,7 @@ The bot needs these permissions to work properly:
 ## 💡 Tips
 
 - **Use slash commands** for the best experience – they're faster and more reliable
+- **Clan Events** – check `/event list` to see what events are running and what earns points; use `/event leaderboard` to see where your clan stands
 - **Confessions are anonymous** – use `/confession` only (no prefix command) so your identity stays private
 - **Try different joke categories** – each has its own style and humor
 - **Submit your own Truth or Dare questions** – help grow the community database
