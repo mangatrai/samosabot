@@ -298,11 +298,11 @@ class EventBasicInfoModal(discord.ui.Modal):
             default=state.description, max_length=500, required=False,
         )
         self.start_field = discord.ui.TextInput(
-            label="Start Date  (YYYY-MM-DD)", placeholder="2026-05-01",
+            label="Start Date  (MM/DD/YYYY)", placeholder="05/01/2026",
             default=state.start_date, required=False,
         )
         self.end_field = discord.ui.TextInput(
-            label="End Date  (YYYY-MM-DD)", placeholder="2026-05-31",
+            label="End Date  (MM/DD/YYYY)", placeholder="05/31/2026",
             default=state.end_date, required=False,
         )
         self.image_field = discord.ui.TextInput(
@@ -729,10 +729,7 @@ def _build_activity_select_embed(pre_selected: list[str]) -> discord.Embed:
         ),
         color=discord.Color.blurple(),
     )
-    lines = []
-    for a in CURATED_ACTIVITIES:
-        mark = "✅" if a in pre_selected else "⬜"
-        lines.append(f"{mark} {a}")
+    lines = [f"• {a}" for a in CURATED_ACTIVITIES]
     embed.add_field(name="Curated Activities", value="\n".join(lines), inline=False)
     return embed
 
@@ -1271,26 +1268,26 @@ class ClanEvents(commands.Cog):
 
     # ---- /event list ----
 
-    @event_group.command(name="list", description="List all events for this server (mod only)")
+    @event_group.command(name="list", description="List all events and their activities for this server")
     @app_commands.guild_only()
     async def event_list(self, interaction: discord.Interaction):
-        if not await self._check_mod(interaction):
-            await interaction.response.send_message("❌ You don't have permission to list events.", ephemeral=True)
-            return
         await interaction.response.defer(ephemeral=True)
         events = astra_db_ops.get_clan_events(str(interaction.guild_id))
         if not events:
-            await interaction.followup.send("No events found. Create one with `/event create`.", ephemeral=True)
+            await interaction.followup.send(
+                "No events found. Ask a mod to create one with `/event create`.", ephemeral=True
+            )
             return
         embed = discord.Embed(title="📋  Events", color=discord.Color.blurple())
         for e in events[:20]:
             icon = STATUS_EMOJI.get(e.get("status", "draft"), "📝")
-            dates = f"  {e['start_date']} → {e.get('end_date','?')}" if e.get("start_date") else ""
-            embed.add_field(
-                name=f"{icon}  {e['name']}",
-                value=f"**{e.get('status','draft').title()}**{dates}  •  {len(e.get('activities',[]))} activities",
-                inline=False,
-            )
+            dates = f"  •  {e['start_date']} → {e.get('end_date', '?')}" if e.get("start_date") else ""
+            activities = e.get("activities", [])
+            acts_lines = "\n".join(f"  `{a['points']} pts`  {a['name']}" for a in activities)
+            value = f"**{e.get('status', 'draft').title()}**{dates}"
+            if acts_lines:
+                value += f"\n{acts_lines}"
+            embed.add_field(name=f"{icon}  {e['name']}", value=value, inline=False)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     # ---- /event award ----
