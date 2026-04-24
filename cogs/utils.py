@@ -143,6 +143,23 @@ class UtilsCog(commands.Cog):
             inline=False
         )
         
+        # Clan Events Section
+        embed.add_field(
+            name="🏆 Clan Events",
+            value=(
+                "`/event list` - See all events and their activities & points\n"
+                "`/event leaderboard [member] [event]` - Scores and clan rankings\n"
+                "**Mod only:**\n"
+                "`/events setup` - Configure clans, channels, and mod roles\n"
+                "`/events settings` - View current configuration\n"
+                "`/event create` - Create a new event (multi-step)\n"
+                "`/event start/stop <event>` - Start or end an event\n"
+                "`/event award @member <event> <activity>` - Award points\n"
+                "`/event adjust @member <event> <pts> <reason>` - Adjust points with audit trail"
+            ),
+            inline=False
+        )
+
         # Additional Info
         embed.add_field(
             name="💡 Tips",
