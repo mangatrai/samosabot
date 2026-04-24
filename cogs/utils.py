@@ -260,7 +260,7 @@ class UtilsCog(commands.Cog):
                     'jpeg': 'image/jpeg', 'webp': 'image/webp',
                 }.get(ext, 'image/png')
                 b64 = base64.b64encode(image_bytes).decode('utf-8')
-                await ctx.bot.http.edit_guild_member(
+                await ctx.bot.http.edit_member(
                     str(ctx.guild.id), '@me', avatar=f"data:{mime};base64,{b64}"
                 )
                 await ctx.send("✅ Guild avatar updated! It may take a moment to propagate.")
@@ -271,7 +271,7 @@ class UtilsCog(commands.Cog):
                 await ctx.send("❌ You need **Manage Server** permission.")
                 return
             try:
-                await ctx.bot.http.edit_guild_member(str(ctx.guild.id), '@me', avatar=None)
+                await ctx.bot.http.edit_member(str(ctx.guild.id), '@me', avatar=None)
                 await ctx.send("✅ Guild avatar removed. Bot will show its global default avatar.")
             except Exception as e:
                 await error_handler.handle_error(e, ctx, "samosa removeicon")
@@ -319,7 +319,7 @@ class UtilsCog(commands.Cog):
                 'jpeg': 'image/jpeg', 'webp': 'image/webp',
             }.get(ext, 'image/png')
             b64 = base64.b64encode(image_bytes).decode('utf-8')
-            await interaction.client.http.edit_guild_member(
+            await interaction.client.http.edit_member(
                 str(interaction.guild_id), '@me', avatar=f"data:{mime};base64,{b64}"
             )
             embed = discord.Embed(
@@ -348,7 +348,7 @@ class UtilsCog(commands.Cog):
             return
         await interaction.response.defer(ephemeral=True)
         try:
-            await interaction.client.http.edit_guild_member(str(interaction.guild_id), '@me', avatar=None)
+            await interaction.client.http.edit_member(str(interaction.guild_id), '@me', avatar=None)
             await interaction.followup.send(
                 "✅ Guild avatar removed. The bot will now show its global default avatar in this server.",
                 ephemeral=True,
