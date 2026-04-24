@@ -55,6 +55,7 @@ class EventCreationState:
         self.description = ""
         self.start_date = ""
         self.end_date = ""
+        self.image_url = ""  # set from attachment at command invocation time
         self.selected_curated_activities: list[str] = []
         self.activities_state: dict[str, int | None] = {}  # name → points (None = not yet set)
         self.activities: list[dict] = []
@@ -615,7 +616,7 @@ class EventSummaryView(discord.ui.View):
             "description": self.state.description,
             "start_date": self.state.start_date,
             "end_date": self.state.end_date,
-            "image_url": "",
+            "image_url": self.state.image_url,
             "activities": self.state.activities,
             "status": "draft",
             "created_by": self.state.mod_id,
@@ -629,10 +630,10 @@ class EventSummaryView(discord.ui.View):
         embed = _build_event_summary_embed(self.state)
         embed.title = f"✅ Event Saved — {self.state.name}"
         embed.color = discord.Color.green()
+        hint = "" if self.state.image_url else "\n💡 No banner image — use `/event setbanner` to add one anytime."
         embed.description = (
             f"{embed.description or ''}\n\n"
-            f"**Status:** Draft — use `/event start` when you're ready to go live! 🚀\n"
-            f"💡 Want a banner image? Use `/event setbanner` to upload one."
+            f"**Status:** Draft — use `/event start` when you're ready to go live! 🚀{hint}"
         )
         await self.state.form_interaction.edit_original_response(
             content=None, embed=embed, view=None
@@ -755,6 +756,8 @@ def _build_event_summary_embed(state: EventCreationState) -> discord.Embed:
         embed.add_field(name="📅 Dates", value=f"{state.start_date or '?'} → {state.end_date or '?'}", inline=True)
     acts = "\n".join(f"• **{a['name']}** — {a['points']} pts" for a in state.activities)
     embed.add_field(name="🎯 Activities", value=acts or "None set", inline=False)
+    if state.image_url:
+        embed.set_image(url=state.image_url)
     return embed
 
 
@@ -1168,9 +1171,12 @@ class ClanEvents(commands.Cog):
 
     # ---- /event create ----
 
+    _ALLOWED_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+
     @event_group.command(name="create", description="Create a new event (mod only)")
+    @app_commands.describe(image="Optional banner image to attach now (png, jpg, jpeg, webp)")
     @app_commands.guild_only()
-    async def event_create(self, interaction: discord.Interaction):
+    async def event_create(self, interaction: discord.Interaction, image: discord.Attachment = None):
         if not await self._check_mod(interaction):
             await interaction.response.send_message("❌ You don't have permission to create events.", ephemeral=True)
             return
@@ -1179,7 +1185,15 @@ class ClanEvents(commands.Cog):
                 "❌ Clan events not configured yet. Ask an admin to run `/events setup` first.", ephemeral=True
             )
             return
+        if image and not any(image.filename.lower().endswith(ext) for ext in self._ALLOWED_IMAGE_EXTS):
+            await interaction.response.send_message(
+                f"❌ **{image.filename}** is not a supported image type. Use PNG, JPG, JPEG, or WEBP.",
+                ephemeral=True,
+            )
+            return
         state = EventCreationState(guild_id=str(interaction.guild_id), mod_id=str(interaction.user.id))
+        if image:
+            state.image_url = image.url
         await interaction.response.send_modal(EventBasicInfoModal(state))
 
     # ---- /event start ----
@@ -1382,9 +1396,7 @@ class ClanEvents(commands.Cog):
 
     # ---- /event setbanner ----
 
-    _ALLOWED_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
-
-    @event_group.command(name="setbanner", description="Upload a banner image for an event (mod only)")
+    @event_group.command(name="setbanner", description="Add or replace the banner image for an existing event (mod only)")
     @app_commands.describe(
         event_name="Event to update",
         image="Image file to upload (png, jpg, jpeg, webp)",
