@@ -6,6 +6,7 @@ create timed events, and mods award points for activities. Members and clans
 accumulate scores visible via leaderboards.
 """
 
+import io
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -306,8 +307,8 @@ class EventBasicInfoModal(discord.ui.Modal):
             default=state.end_date, required=False,
         )
         self.image_field = discord.ui.TextInput(
-            label="Event Banner / Brochure URL  (optional)",
-            placeholder="https://i.imgur.com/your-banner.png",
+            label="Event Banner URL  (optional)",
+            placeholder="https://example.com/banner.png  — must be a direct image link",
             default=state.image_url, required=False, max_length=500,
         )
         for f in (self.name_field, self.desc_field, self.start_field, self.end_field, self.image_field):
@@ -1385,6 +1386,78 @@ class ClanEvents(commands.Cog):
 
     @event_adjust.autocomplete("event_name")
     async def _adjust_event_ac(self, interaction, current):
+        return await self._any_event_ac(interaction, current)
+
+    # ---- /event setbanner ----
+
+    _ALLOWED_IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp")
+
+    @event_group.command(name="setbanner", description="Upload a banner image for an event (mod only)")
+    @app_commands.describe(
+        event_name="Event to update",
+        image="Image file to upload (png, jpg, jpeg, webp)",
+    )
+    @app_commands.guild_only()
+    async def event_setbanner(
+        self, interaction: discord.Interaction,
+        event_name: str, image: discord.Attachment,
+    ):
+        if not await self._check_mod(interaction):
+            await interaction.response.send_message("❌ You don't have permission to update events.", ephemeral=True)
+            return
+
+        if not any(image.filename.lower().endswith(ext) for ext in self._ALLOWED_IMAGE_EXTS):
+            await interaction.response.send_message(
+                f"❌ Unsupported file type **{image.filename}**. Please upload a PNG, JPG, JPEG, or WEBP image.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        guild_id = str(interaction.guild_id)
+
+        event = astra_db_ops.get_clan_event_by_name(guild_id, event_name)
+        if not event:
+            await interaction.followup.send(f"❌ Event **{event_name}** not found.", ephemeral=True)
+            return
+
+        try:
+            data = await image.read()
+            file = discord.File(io.BytesIO(data), filename=image.filename)
+
+            # Re-post to admin channel to get a stable bot-owned CDN URL.
+            # Storing the attachment URL from a bot message is permanent as long
+            # as that message exists; user attachment URLs have expiring parameters.
+            settings = astra_db_ops.get_clan_event_settings(guild_id)
+            admin_ch_id = settings.get("admin_channel_id") if settings else None
+            image_url = image.proxy_url  # fallback: Discord-proxied URL
+
+            if admin_ch_id:
+                admin_ch = interaction.guild.get_channel(int(admin_ch_id))
+                if admin_ch:
+                    msg = await admin_ch.send(
+                        f"📸 **Event banner — {event_name}** *(do not delete — used in event embeds)*",
+                        file=file,
+                    )
+                    if msg.attachments:
+                        image_url = msg.attachments[0].url
+
+            astra_db_ops.update_clan_event_image(guild_id, event["event_id"], image_url)
+
+            embed = discord.Embed(
+                title=f"✅ Banner Updated — {event_name}",
+                description="The banner has been saved and will appear in event announcements and leaderboards.",
+                color=discord.Color.green(),
+            )
+            embed.set_image(url=image_url)
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            logging.error(f"Error setting event banner: {e}")
+            await interaction.followup.send("❌ Failed to upload banner. Please try again.", ephemeral=True)
+
+    @event_setbanner.autocomplete("event_name")
+    async def _setbanner_event_ac(self, interaction, current):
         return await self._any_event_ac(interaction, current)
 
     # ---- /event leaderboard ----

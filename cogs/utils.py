@@ -155,7 +155,8 @@ class UtilsCog(commands.Cog):
                 "`/event create` - Create a new event (multi-step)\n"
                 "`/event start/stop <event>` - Start or end an event\n"
                 "`/event award @member <event> <activity>` - Award points\n"
-                "`/event adjust @member <event> <pts> <reason>` - Adjust points with audit trail"
+                "`/event adjust @member <event> <pts> <reason>` - Adjust points with audit trail\n"
+                "`/event setbanner <event> <image>` - Upload a PNG/JPG/WEBP banner image"
             ),
             inline=False
         )

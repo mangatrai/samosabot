@@ -1372,6 +1372,19 @@ def update_clan_event_status(guild_id: str, event_id: str, status: str) -> None:
     except Exception as e:
         logging.error(f"Error updating clan event {event_id} status: {e}")
 
+def update_clan_event_image(guild_id: str, event_id: str, image_url: str) -> None:
+    try:
+        collection = get_clan_events_collection()
+        if collection is None:
+            return
+        collection.find_one_and_update(
+            {"guild_id": guild_id, "event_id": event_id},
+            {"$set": {"image_url": image_url}},
+        )
+        logging.debug(f"Updated clan event {event_id} image URL")
+    except Exception as e:
+        logging.error(f"Error updating clan event {event_id} image: {e}")
+
 def award_clan_points(guild_id: str, event_id: str, user_id: str, username: str,
                       activity_name: str, clan_role_id: str, clan_name: str, points: int) -> None:
     try:
