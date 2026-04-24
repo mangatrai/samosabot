@@ -7,7 +7,7 @@ import logging
 load_dotenv(override=True)
 
 # Configuration Variables
-EXEMPT_COMMANDS = os.getenv("EXEMPT_COMMANDS", "trivia").lower().split(",")
+EXEMPT_COMMANDS = os.getenv("EXEMPT_COMMANDS", "trivia,event,events").lower().split(",")
 logging.info(f"Loaded exempt commands: {EXEMPT_COMMANDS}")
 
 DELAY_BETWEEN_COMMANDS = int(os.getenv("DELAY_BETWEEN_COMMANDS", "5"))
