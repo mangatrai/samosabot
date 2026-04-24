@@ -263,6 +263,7 @@ class UtilsCog(commands.Cog):
                 await ctx.bot.http.edit_member(
                     str(ctx.guild.id), '@me', avatar=f"data:{mime};base64,{b64}"
                 )
+                astra_db_ops.update_guild_custom_bot_icon(str(ctx.guild.id), True)
                 await ctx.send("✅ Guild avatar updated! It may take a moment to propagate.")
             except Exception as e:
                 await error_handler.handle_error(e, ctx, "samosa seticon")
@@ -272,6 +273,7 @@ class UtilsCog(commands.Cog):
                 return
             try:
                 await ctx.bot.http.edit_member(str(ctx.guild.id), '@me', avatar=None)
+                astra_db_ops.update_guild_custom_bot_icon(str(ctx.guild.id), False)
                 await ctx.send("✅ Guild avatar removed. Bot will show its global default avatar.")
             except Exception as e:
                 await error_handler.handle_error(e, ctx, "samosa removeicon")
@@ -322,6 +324,7 @@ class UtilsCog(commands.Cog):
             await interaction.client.http.edit_member(
                 str(interaction.guild_id), '@me', avatar=f"data:{mime};base64,{b64}"
             )
+            astra_db_ops.update_guild_custom_bot_icon(str(interaction.guild_id), True)
             embed = discord.Embed(
                 title="✅ Guild Avatar Updated",
                 description=(
@@ -349,6 +352,7 @@ class UtilsCog(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         try:
             await interaction.client.http.edit_member(str(interaction.guild_id), '@me', avatar=None)
+            astra_db_ops.update_guild_custom_bot_icon(str(interaction.guild_id), False)
             await interaction.followup.send(
                 "✅ Guild avatar removed. The bot will now show its global default avatar in this server.",
                 ephemeral=True,

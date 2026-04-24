@@ -1501,6 +1501,35 @@ def get_clan_rankings(member_scores: list) -> list:
         clan["avg_points"] = round(clan["total_points"] / mc, 1) if mc > 0 else 0
     return sorted(clan_data.values(), key=lambda x: x["total_points"], reverse=True)
 
+def update_guild_custom_bot_icon(guild_id: str, has_custom_icon: bool) -> None:
+    """Record whether this guild has set a custom guild-specific avatar for the bot."""
+    try:
+        collection = get_registered_servers_collection()
+        if collection is None:
+            return
+        collection.find_one_and_update(
+            {"guild_id": str(guild_id)},
+            {"$set": {"has_custom_bot_icon": has_custom_icon}},
+            upsert=True,
+        )
+    except Exception as e:
+        logging.error(f"Error updating custom bot icon flag for guild {guild_id}: {e}")
+
+
+def update_clan_recap_sent_at(guild_id: str) -> None:
+    """Stamp the current UTC time as last_recap_sent_at for a guild."""
+    try:
+        collection = get_clan_event_settings_collection()
+        if collection is None:
+            return
+        collection.find_one_and_update(
+            {"guild_id": guild_id},
+            {"$set": {"last_recap_sent_at": datetime.datetime.utcnow().isoformat()}},
+        )
+    except Exception as e:
+        logging.error(f"Error updating last_recap_sent_at for guild {guild_id}: {e}")
+
+
 def get_user_event_activity_breakdown(guild_id: str, event_id: str, user_id: str) -> list:
     """Returns per-activity breakdown for a user in an event."""
     try:

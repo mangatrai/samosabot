@@ -1091,11 +1091,24 @@ class ClanEvents(commands.Cog):
             logging.error(f"Daily recap: error fetching settings: {e}")
             return
 
+        now = datetime.datetime.utcnow()
         for settings in guilds:
             guild_id = settings.get("guild_id")
             channel_id = settings.get("announcement_channel_id")
             if not guild_id or not channel_id:
                 continue
+
+            # Skip if a recap was already sent within the last 23 hours so that
+            # bot restarts don't cause duplicate posts mid-day.
+            last_sent_raw = settings.get("last_recap_sent_at")
+            if last_sent_raw:
+                try:
+                    last_sent = datetime.datetime.fromisoformat(last_sent_raw)
+                    if (now - last_sent) < datetime.timedelta(hours=23):
+                        continue
+                except (ValueError, TypeError):
+                    pass  # malformed timestamp — treat as never sent
+
             try:
                 active_events = astra_db_ops.get_clan_events(guild_id, status="active")
                 if not active_events:
@@ -1107,6 +1120,7 @@ class ClanEvents(commands.Cog):
                 channel = self.bot.get_channel(int(channel_id))
                 if channel:
                     await channel.send(embed=_build_daily_recap_embed(active_events, clan_scores_by_event))
+                    astra_db_ops.update_clan_recap_sent_at(guild_id)
             except Exception as e:
                 logging.error(f"Daily recap: error for guild {guild_id}: {e}")
 
