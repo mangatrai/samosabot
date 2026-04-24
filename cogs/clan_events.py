@@ -55,7 +55,6 @@ class EventCreationState:
         self.description = ""
         self.start_date = ""
         self.end_date = ""
-        self.image_url = ""
         self.selected_curated_activities: list[str] = []
         self.activities_state: dict[str, int | None] = {}  # name → points (None = not yet set)
         self.activities: list[dict] = []
@@ -306,12 +305,7 @@ class EventBasicInfoModal(discord.ui.Modal):
             label="End Date  (MM/DD/YYYY)", placeholder="05/31/2026",
             default=state.end_date, required=False,
         )
-        self.image_field = discord.ui.TextInput(
-            label="Event Banner URL  (optional)",
-            placeholder="https://example.com/banner.png  — must be a direct image link",
-            default=state.image_url, required=False, max_length=500,
-        )
-        for f in (self.name_field, self.desc_field, self.start_field, self.end_field, self.image_field):
+        for f in (self.name_field, self.desc_field, self.start_field, self.end_field):
             self.add_item(f)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -319,7 +313,6 @@ class EventBasicInfoModal(discord.ui.Modal):
         self.state.description = self.desc_field.value.strip()
         self.state.start_date = self.start_field.value.strip()
         self.state.end_date = self.end_field.value.strip()
-        self.state.image_url = self.image_field.value.strip()
         self.state.form_interaction = interaction  # stored for later edit_original_response()
 
         embed = _build_activity_select_embed(self.state.selected_curated_activities)
@@ -622,7 +615,7 @@ class EventSummaryView(discord.ui.View):
             "description": self.state.description,
             "start_date": self.state.start_date,
             "end_date": self.state.end_date,
-            "image_url": self.state.image_url,
+            "image_url": "",
             "activities": self.state.activities,
             "status": "draft",
             "created_by": self.state.mod_id,
@@ -638,7 +631,8 @@ class EventSummaryView(discord.ui.View):
         embed.color = discord.Color.green()
         embed.description = (
             f"{embed.description or ''}\n\n"
-            f"**Status:** Draft — use `/event start` when you're ready to go live! 🚀"
+            f"**Status:** Draft — use `/event start` when you're ready to go live! 🚀\n"
+            f"💡 Want a banner image? Use `/event setbanner` to upload one."
         )
         await self.state.form_interaction.edit_original_response(
             content=None, embed=embed, view=None
@@ -761,8 +755,6 @@ def _build_event_summary_embed(state: EventCreationState) -> discord.Embed:
         embed.add_field(name="📅 Dates", value=f"{state.start_date or '?'} → {state.end_date or '?'}", inline=True)
     acts = "\n".join(f"• **{a['name']}** — {a['points']} pts" for a in state.activities)
     embed.add_field(name="🎯 Activities", value=acts or "None set", inline=False)
-    if state.image_url:
-        embed.set_image(url=state.image_url)
     return embed
 
 
