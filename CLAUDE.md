@@ -59,6 +59,7 @@ discord/
 │   ├── fun.py                  # pickup lines, compliments, fortunes
 │   ├── ship.py                 # Compatibility/ship with image compositing
 │   ├── roast.py                # AI roast generation
+│   ├── clan_events.py          # Clan event competitions (scoring, leaderboards, daily recap)
 │   └── member_events.py        # on_member_remove: cleanup verification
 │
 ├── games/
@@ -66,6 +67,7 @@ discord/
 │
 └── tests/
     ├── verification_test.py
+    ├── test_clan_events.py      # Unit tests: throttle, score aggregation, clan rankings, progress bar
     └── clean_collection_data.py
 ```
 
@@ -118,7 +120,7 @@ Set `ENABLE_FLASK=true` to start the keep-alive web server on port 8080.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `EXEMPT_COMMANDS` | `trivia` | Comma-separated commands exempt from throttle |
+| `EXEMPT_COMMANDS` | `trivia,event,events` | Comma-separated commands exempt from throttle |
 | `DELAY_BETWEEN_COMMANDS` | `5` | Minimum seconds between commands per user |
 | `MAX_ALLOWED_PER_MINUTE` | `10` | Max commands per user per minute |
 
@@ -171,6 +173,10 @@ All DB operations live in `utils/astra_db_ops.py`. Collections are created by `u
 | `verification_attempts` | Verification event logs |
 | `guild_verification_settings` | Per-guild verification config |
 | `active_verifications` | In-progress user verification sessions |
+| `clan_event_settings` | Per-guild clan roles, mod roles, channel config, auto-post flag |
+| `clan_events` | Event definitions: name, dates, status, activities + point values |
+| `clan_scores` | Per-user per-activity score records (accumulates on repeat awards) |
+| `clan_adjustments` | Manual point corrections with mandatory reason (audit log) |
 
 ---
 
@@ -218,6 +224,29 @@ Both prefix (`!`) and slash (`/`) versions exist for most commands.
 - `/verification` — Configure verification
 - `/verification_status` — Check status
 - `/setup_wizard` — Guided setup
+
+### Clan Events (slash only)
+
+All mod commands are ephemeral. `event` and `events` are exempt from throttling by default.
+
+**Setup (Manage Server)**
+- `/events setup` — Multi-step: select channels → clan roles (paginated) → mod roles → confirm
+- `/events settings` — View current configuration (mod+)
+
+**Event lifecycle (mod+: Manage Server OR designated mod role)**
+- `/event create` — Multi-step: basic info modal → activity select → set point values → review + submit
+- `/event start <event>` — Activate a draft event; posts announcement if auto-post enabled
+- `/event stop <event>` — End an active event; posts final leaderboard if auto-post enabled
+- `/event list` — List all events with status and dates
+
+**Scoring (mod+)**
+- `/event award @member <event> <activity>` — Award fixed points; re-awarding accumulates on the same record
+- `/event adjust @member <event> <points> <reason>` — Manual correction; stored in `clan_adjustments` (adjustments factor into scores at query time, not in `clan_scores`)
+
+**Leaderboard (everyone)**
+- `/event leaderboard [member] [event]` — User score + rank, clan total/average/rank, top 5 members, top 5 clans; all-time or event-scoped
+
+**Background task:** Daily recap posts to announcement channel for all guilds with `auto_post=true` and at least one active event.
 
 ---
 

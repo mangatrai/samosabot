@@ -6,6 +6,7 @@ A feature-rich Discord bot that brings **Trivia Games, Truth or Dare, Anonymous 
 
 ## 🚀 Features
 
+- 🏆 **Clan Events** – Point-based clan competitions with leaderboards, activity scoring, and daily recaps
 - 🎉 **Trivia Game** – Play interactive trivia with automatic score tracking and leaderboards
 - 🎯 **Truth or Dare** – Interactive party game with user submissions and feedback
 - 💬 **Anonymous Confessions** – Submit confessions with sentiment analysis; admins can require approval, auto-approve positive posts, and review with First/Previous/Next/Last pagination
@@ -20,6 +21,49 @@ A feature-rich Discord bot that brings **Trivia Games, Truth or Dare, Anonymous 
 ---
 
 ## 🎮 Commands
+
+### 🏆 Clan Events
+
+A point-based clan competition system. Admins define clans (Discord roles), create timed events with configurable activities, and mods award points to members. All mod commands are ephemeral (visible only to the mod).
+
+#### Setup (Manage Server only)
+
+| Command | Description |
+|---------|-------------|
+| `/events setup` | Configure clan roles, mod roles, channels, and auto-post setting |
+| `/events settings` | View current configuration |
+
+#### Event Lifecycle (mod only)
+
+| Command | Description |
+|---------|-------------|
+| `/event create` | Create a new event — multi-step: basic info → select activities → set point values |
+| `/event start <event>` | Set event to active and optionally post an announcement |
+| `/event stop <event>` | End an event and optionally post final leaderboard |
+| `/event list` | List all events with status and dates |
+
+#### Scoring (mod only)
+
+| Command | Description |
+|---------|-------------|
+| `/event award @member <event> <activity>` | Award fixed points for a completed activity; accumulates on repeated awards |
+| `/event adjust @member <event> <points> <reason>` | Add or subtract points with a mandatory reason (stored in audit log) |
+
+#### Leaderboard (everyone)
+
+| Command | Description |
+|---------|-------------|
+| `/event leaderboard [member] [event]` | View scores and clan rankings — all-time or per-event |
+
+**How it works:**
+- Clans are Discord roles configured in `/events setup`
+- Each member belongs to the first matching clan role
+- Events have curated activities (QOTD, Picture of the Week, Clue Game, Bump Server, Invite a Friend) plus custom activities you add
+- Point values are fixed per activity at event creation time
+- Adjustments are stored separately and factored in at query time (full audit trail)
+- If **Auto-Post** is enabled: start/stop announcements and a daily clan recap post automatically to the announcement channel
+
+---
 
 ### 🎉 Trivia Game
 | Command | Description |
